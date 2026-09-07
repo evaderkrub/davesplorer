@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-project(davesplorer LANGUAGES C CXX)
+project(davesplorer LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -136,7 +136,8 @@ target_link_libraries(dsp_ui PUBLIC dsp_app imgui)
 # ---------------------------------------------------------------------------
 add_executable(davesplorer WIN32
     src/main.cpp
-    src/platform/Host.cpp)
+    src/platform/Host.cpp
+    src/platform/app.rc)
 target_link_libraries(davesplorer PRIVATE dsp_ui imgui_backends imgui_test_engine SDL3::SDL3-static)
 set_target_properties(davesplorer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DSP_STAGE_DIR}")
 add_custom_command(TARGET davesplorer POST_BUILD

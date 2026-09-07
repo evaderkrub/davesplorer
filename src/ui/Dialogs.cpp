@@ -123,8 +123,13 @@ void DrawDialogs(app::AppState& state, UiState& ui)
     // --- About: always modal, per the brief.
     if (BeginModal(kAboutTitle))
         {
+        // The app icon is a red folder; the About box echoes it.
         ImGui::PushFont(fonts::Bold(), fonts::Size() * 1.6f);
-        ImGui::TextUnformatted(ICON_MD_FOLDER_OPEN "  Davesplorer");
+        ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(214, 52, 52, 255));
+        ImGui::TextUnformatted(ICON_MD_FOLDER);
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::TextUnformatted("Davesplorer");
         ImGui::PopFont();
         MutedText("A Windows File Explorer clone, chiseled by hand.");
         ImGui::Spacing();

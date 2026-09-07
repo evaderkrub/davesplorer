@@ -50,6 +50,11 @@ int RunApplication(int argc, char** argv)
     (void)argc;
     (void)argv;
 
+    // The window class takes its icon from resource 101 in app.rc, which
+    // is the same red folder Explorer shows on the exe; no pixel data has
+    // to be shipped or decoded for it.
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON, "101");
+    SDL_SetHint(SDL_HINT_WINDOWS_INTRESOURCE_ICON_SMALL, "101");
     if (!SDL_Init(SDL_INIT_VIDEO))
         {
         ShowFatal(SDL_GetError());

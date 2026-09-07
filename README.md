@@ -54,6 +54,10 @@ be copied to another Windows machine and run; nothing needs installing.
 - **Themes**: Wili Dark (default), Slate Dark, Light, Midnight, Nord. Styles,
   fonts (Open Sans, Fira Code) and Material Design icons come from fwcom.
 - **About** box under Help, modal like every dialog here.
+- **App icon**: a red folder, embedded as a Windows resource (Explorer, the
+  taskbar and the window title bar all show it) along with version info.
+  `tools/make_icon.py` redraws `assets/icon/davesplorer.ico` and `.png`
+  with Pillow.
 
 Settings (theme, zoom, view options, window size, last folder) persist in
 `settings.ini` beside the executable; the dock layout persists in `imgui.ini`
@@ -70,6 +74,8 @@ directory, never the working directory.
     src/ui/               everything that draws
     src/platform/         Win32 file system and shell, SDL host loop
     assets/fonts/         Open Sans, Fira Code, Material Icons
+    assets/icon/          the red-folder app icon (.ico, .png)
+    tools/make_icon.py    regenerates the icon
     tests/                console test binaries
     cmake/dsp_imconfig.h  ImGui configuration (test-engine hooks on)
 
