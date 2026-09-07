@@ -638,6 +638,28 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "dropped.txt")));
     };
 
+    t = IM_REGISTER_TEST(e, "explorer", "command_line_select_scrolls_into_view");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        // Enough files that the target is well below the fold, then a
+        // command-line select of one near the end.
+        for (int i = 0; i < 60; ++i) WriteFile(app::JoinPath(fx.root, "row" + std::to_string(i) + ".txt"), "x");
+        app::ApplyStartArgument(fx.state, app::JoinPath(fx.root, "row58.txt"));
+        ctx->Yield(6);
+        const app::Tab& tab = fx.state.active();
+        IM_CHECK_EQ(app::SelectedCount(tab), 1);
+        IM_CHECK_STR_EQ(tab.entries[(size_t)tab.focused].name.c_str(), "row58.txt");
+        // The scroll request was consumed, so SetScrollHereY ran on the row.
+        IM_CHECK_EQ(fx.ui.view(tab.id).scrollToEntry, -1);
+        // The list is clipped, so a row is registered as an item only while
+        // it is drawn: row58 present and a top row (row0) absent means the
+        // list really scrolled down to the selection.
+        RefActiveView(ctx, fx);
+        IM_CHECK(ctx->ItemExists("**/###row58.txt"));
+        IM_CHECK(!ctx->ItemExists("**/###row0.txt"));
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "shortcut_bar_pin_jump_clear");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;

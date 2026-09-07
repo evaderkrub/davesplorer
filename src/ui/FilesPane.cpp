@@ -429,7 +429,11 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
     if (v.seenGeneration != tab.listingGeneration)
         {
         v.seenGeneration = tab.listingGeneration;
-        ImGui::SetScrollY(0.0f);
+        // A new listing normally starts at the top, but if it arrived with a
+        // focused item -- a command-line /select, or a file kept across a
+        // refresh -- bring that into view instead, the way Explorer does.
+        if (tab.focused >= 0) v.scrollToEntry = tab.focused;
+        else ImGui::SetScrollY(0.0f);
         }
 
     const ImVec4 selectedBg = ImGui::ColorConvertU32ToFloat4(WithAlpha(CurrentPalette().accent, 70));
