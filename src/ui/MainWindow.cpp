@@ -168,7 +168,7 @@ void OpenInExplorer(app::AppState& state, UiState& ui)
     const std::vector<int> sel = app::SelectedIndices(tab);
     std::string error;
     const bool ok = sel.size() == 1 ? platform::ShowInExplorer(tab.entries[(size_t)sel[0]].path, error)
-                                    : platform::OpenWithShell(tab.path.empty() ? "shell:MyComputerFolder" : tab.path, error);
+                                    : platform::OpenFolderInExplorer(tab.path, error);
     if (!ok) ShowError(ui, error);
 }
 

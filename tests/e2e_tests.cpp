@@ -431,6 +431,9 @@ void RegisterTests(ImGuiTestEngine* e)
         RefActiveView(ctx, fx);
         IM_CHECK(ctx->ItemExists("**/###Terminal"));
         IM_CHECK((ctx->ItemInfo("**/###Terminal").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+        // Same for the Explorer button, which opens a real Explorer window.
+        IM_CHECK(ctx->ItemExists("**/###Explorer"));
+        IM_CHECK((ctx->ItemInfo("**/###Explorer").ItemFlags & ImGuiItemFlags_Disabled) == 0);
 
         // An invalid name keeps the dialog open with a reason.
         ctx->SetRef(ui::kHostWindow);

@@ -145,7 +145,9 @@ set_target_properties(davesplorer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DSP_STA
 add_custom_command(TARGET davesplorer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/assets" "${DSP_STAGE_DIR}/assets"
-    COMMENT "Staging assets beside davesplorer.exe")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/tools/register.ps1" "${DSP_STAGE_DIR}/register.ps1"
+    COMMENT "Staging assets and the shell registration script beside davesplorer.exe")
 
 # ---------------------------------------------------------------------------
 # Tests: console binaries.

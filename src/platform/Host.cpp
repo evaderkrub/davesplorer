@@ -47,9 +47,6 @@ void ShowFatal(const char* what)
 
 int RunApplication(int argc, char** argv)
 {
-    (void)argc;
-    (void)argv;
-
     // The window class takes its icon from resource 101 in app.rc, which
     // is the same red folder Explorer shows on the exe; no pixel data has
     // to be shipped or decoded for it.
@@ -63,6 +60,10 @@ int RunApplication(int argc, char** argv)
 
     app::AppState state;
     app::InitAppState(state, ExecutableDir());
+    // "davesplorer.exe <folder-or-file>": what the shell passes when a
+    // folder is opened with this program. SDL's main shim already
+    // converted the arguments to UTF-8.
+    if (argc > 1 && argv[1] && argv[1][0] != '\0') app::ApplyStartArgument(state, argv[1]);
     state.buildInfo = BuildInfo();
     const app::Settings& s = state.settings;
 

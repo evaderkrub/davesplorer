@@ -45,6 +45,31 @@ void InitAppState(AppState& state, const std::string& exeDir)
     OpenTab(state, start);
 }
 
+bool ApplyStartArgument(AppState& state, const std::string& argument)
+{
+    std::string path = NormalizePath(argument);
+    // Explorer quotes paths it passes along; a shell verb may leave the
+    // quotes in.
+    if (path.size() >= 2 && path.front() == '"' && path.back() == '"') path = NormalizePath(path.substr(1, path.size() - 2));
+
+    std::string folder, select;
+    if (!path.empty() && platform::IsDirectory(path))
+        {
+        folder = path;
+        }
+    else if (!path.empty() && platform::PathExists(path))
+        {
+        folder = ParentPath(path);
+        select = PathName(path);
+        }
+
+    state.tabs.clear();
+    state.activeTab = 0;
+    OpenTab(state, folder);
+    state.active().selectOnLoad = select;
+    return !folder.empty();
+}
+
 void SaveAppState(AppState& state)
 {
     if (state.settings.rememberLastPath && !state.tabs.empty())

@@ -43,6 +43,7 @@ struct Tab
     SortSpec sort;
     std::string error;                        // last listing failure, shown in place of the list
     bool needsReload = true;
+    std::string selectOnLoad;                 // entry to select once the next listing arrives
 
     // Rises with every reload so the interface can notice a new listing
     // (scroll to top, forget stale row state) without comparing vectors.

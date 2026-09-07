@@ -593,11 +593,12 @@ void DrawStatusBar(app::AppState& state, UiState& ui, app::Tab& tab)
         FaintText(state.statusMessage.c_str());
         }
 
-    // Right end: new folder and a terminal here. Both need a real folder,
-    // so they are greyed out on This PC.
+    // Right end: new folder, a terminal here, and the real Explorer on the
+    // same folder. The first two need a real folder, so they are greyed
+    // out on This PC.
     const ImGuiStyle& style = ImGui::GetStyle();
     const float buttonsW = ImGui::CalcTextSize(ICON_MD_CREATE_NEW_FOLDER).x + ImGui::CalcTextSize(ICON_MD_TERMINAL).x +
-                           style.FramePadding.x * 4.0f + style.ItemSpacing.x;
+                           ImGui::CalcTextSize(ICON_MD_OPEN_IN_NEW).x + style.FramePadding.x * 6.0f + style.ItemSpacing.x * 2.0f;
     ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - buttonsW));
     const bool inFolder = !tab.path.empty();
     if (IconButton("NewFolder", ICON_MD_CREATE_NEW_FOLDER, "New folder (Ctrl+Shift+N)", inFolder))
@@ -610,6 +611,12 @@ void DrawStatusBar(app::AppState& state, UiState& ui, app::Tab& tab)
         {
         std::string error;
         if (!platform::OpenTerminalAt(tab.path, error)) ShowError(ui, error);
+        }
+    ImGui::SameLine();
+    if (IconButton("Explorer", ICON_MD_OPEN_IN_NEW, "Open this folder in Windows Explorer"))
+        {
+        std::string error;
+        if (!platform::OpenFolderInExplorer(tab.path, error)) ShowError(ui, error);
         }
 }
 

@@ -43,6 +43,12 @@ bool ShowInExplorer(const std::string& path, std::string& error)
     return Execute(nullptr, L"explorer.exe", L"/select,\"" + Utf8ToWide(path) + L"\"", L"", error);
 }
 
+bool OpenFolderInExplorer(const std::string& folder, std::string& error)
+{
+    const std::wstring arg = folder.empty() ? L"shell:MyComputerFolder" : L"\"" + Utf8ToWide(folder) + L"\"";
+    return Execute(nullptr, L"explorer.exe", arg, L"", error);
+}
+
 bool OpenTerminalAt(const std::string& dir, std::string& error)
 {
     // Windows Terminal when installed, otherwise the classic prompt.

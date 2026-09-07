@@ -53,7 +53,10 @@ be copied to another Windows machine and run; nothing needs installing.
   editor.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
-  folder and Open terminal buttons at its right end.
+  folder, Open terminal and Open in Windows Explorer buttons at its right
+  end.
+- **Command line**: `davesplorer.exe <folder>` opens that folder;
+  `davesplorer.exe <file>` opens the file's folder with the file selected.
 - **View options**: hidden items, file name extensions, navigation pane,
   status bar.
 - **Scaling**: `Ctrl++` / `Ctrl+-` / `Ctrl+0` or `Ctrl`+wheel zoom the whole
@@ -70,6 +73,24 @@ Settings (theme, zoom, view options, window size, last folder) persist in
 `settings.ini` beside the executable; the dock layout persists in `imgui.ini`
 beside it too. Every runtime path is resolved from the executable's own
 directory, never the working directory.
+
+## Using it instead of Explorer
+
+`register.ps1` (staged beside the exe, source in `tools/`) wires Davesplorer
+into the shell for the current user only; nothing needs administrator
+rights and `-Unregister` puts everything back.
+
+    .\register.ps1                  "Open in Davesplorer" on the right-click menu of folders and drives
+    .\register.ps1 -Default -WinE   folders open in Davesplorer; Win+E and the taskbar Explorer button start it
+    .\register.ps1 -Unregister      back to Explorer
+
+Explorer keeps running as the desktop shell (taskbar, Start menu, desktop);
+only the "open a folder" paths are redirected. Davesplorer's own "Show in
+Windows Explorer" and the status bar's Explorer button call `explorer.exe`
+directly, so they still open the real thing. The Win+E redirect uses the
+shell's File Explorer object verb, a documented per-user override; if a
+Windows update ever stops honoring it, PowerToys Keyboard Manager can map
+Win+E to `davesplorer.exe` instead.
 
 ## Layout
 

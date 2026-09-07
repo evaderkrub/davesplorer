@@ -79,7 +79,16 @@ void ReloadIfNeeded(Tab& tab, const Settings& settings)
         {
         if (keep.count(tab.entries[i].name)) tab.selected[i] = 1;
         if (!focusedName.empty() && tab.entries[i].name == focusedName) tab.focused = (int)i;
+        // A file named on the command line: land on it, as "Show in
+        // Explorer" would.
+        if (!tab.selectOnLoad.empty() && tab.entries[i].name == tab.selectOnLoad)
+            {
+            tab.selected[i] = 1;
+            tab.focused = (int)i;
+            tab.anchor = (int)i;
+            }
         }
+    tab.selectOnLoad.clear();
     ++tab.listingGeneration;
     ApplyView(tab, settings);
 }

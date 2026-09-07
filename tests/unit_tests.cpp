@@ -597,6 +597,27 @@ void TestAppState()
 
     CHECK_EQ(app::LocationTitle(state, ""), "This PC");
     CHECK_EQ(app::LocationTitle(state, state.drives[0].root), state.drives[0].displayName);
+
+    // Command-line argument: a folder opens there, a file opens its folder
+    // with the file selected, and a quoted path is unwrapped. Anything
+    // that is not a path lands on This PC.
+    const std::string sub = tmp.dir("arg");
+    const std::string file = tmp.file("arg.txt", "x");
+    CHECK(app::ApplyStartArgument(state, sub));
+    CHECK_EQ(state.tabs.size(), (size_t)1);
+    CHECK_EQ(state.active().path, sub);
+    CHECK(app::ApplyStartArgument(state, "\"" + sub + "\\\""));
+    CHECK_EQ(state.active().path, sub);
+    CHECK(app::ApplyStartArgument(state, file));
+    CHECK_EQ(state.active().path, tmp.path);
+    app::TickAppState(state);
+    CHECK_EQ(app::SelectedCount(state.active()), 1);
+    CHECK_EQ(app::SelectedPaths(state.active())[0], file);
+    CHECK_EQ(state.active().entries[(size_t)state.active().focused].name, "arg.txt");
+    CHECK(!app::ApplyStartArgument(state, "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"));
+    CHECK_EQ(state.active().path, "");
+    CHECK(!app::ApplyStartArgument(state, app::JoinPath(tmp.path, "missing")));
+    CHECK_EQ(state.active().path, "");
 }
 
 } // namespace
