@@ -96,13 +96,18 @@ if ($Default) {
 }
 
 if ($WinE) {
-    $cmd = "$explorerClsid\shell\opennewwindow\command"
-    New-Item -Path $cmd -Force | Out-Null
-    Set-ItemProperty -Path $cmd -Name '(default)' -Value "`"$ExePath`""
-    # The verb normally delegates to Explorer's own COM handler; an empty
-    # DelegateExecute makes the shell run the command line instead.
-    Set-ItemProperty -Path $cmd -Name 'DelegateExecute' -Value ''
+    # Win+E invokes the object's opennewwindow verb; the taskbar pin invokes
+    # its default verb, open. Both get the same command line.
+    foreach ($v in 'open', 'opennewwindow') {
+        $cmd = "$explorerClsid\shell\$v\command"
+        New-Item -Path $cmd -Force | Out-Null
+        Set-ItemProperty -Path $cmd -Name '(default)' -Value "`"$ExePath`""
+        # The verb normally delegates to Explorer's own COM handler; an empty
+        # DelegateExecute makes the shell run the command line instead.
+        Set-ItemProperty -Path $cmd -Name 'DelegateExecute' -Value ''
+    }
     Write-Host 'Win+E and the taskbar File Explorer button now start Davesplorer.'
+    Write-Host 'If the taskbar button still opens Explorer, restart Explorer (or sign out and in): it caches this.'
 }
 
 Write-Host "Using $ExePath. Undo with: .\register.ps1 -Unregister"
