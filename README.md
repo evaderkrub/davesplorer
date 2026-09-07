@@ -129,3 +129,12 @@ The unit tests exercise the real Windows clipboard and put any text that
 was on it back afterwards.
 
 Both are registered with CTest; `build.cmd release test` runs them.
+
+## License
+
+Davesplorer is released under the MIT License (see `LICENSE`). Bundled
+third-party assets keep their own licenses, each beside the files in
+`assets/fonts`: Open Sans and Fira Code under the SIL Open Font License 1.1,
+Material Icons under the Apache License 2.0. SDL3, Dear ImGui and the ImGui
+Test Engine are fetched at build time under their respective zlib and MIT
+licenses.
