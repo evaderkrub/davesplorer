@@ -83,9 +83,10 @@ directory, never the working directory.
 into the shell for the current user only; nothing needs administrator
 rights and `-Unregister` puts everything back.
 
-    .\register.ps1                  "Open in Davesplorer" on the right-click menu of folders and drives
-    .\register.ps1 -Default -WinE   folders open in Davesplorer; Win+E and the taskbar Explorer button start it
-    .\register.ps1 -Unregister      back to Explorer
+    .\register.ps1                          "Open in Davesplorer" on the right-click menu of folders and drives
+    .\register.ps1 -Default -WinE           folders open in Davesplorer; Win+E and the taskbar Explorer button start it
+    .\register.ps1 -Default -WinE -Interceptor   also catch apps that launch explorer.exe by name
+    .\register.ps1 -Unregister              back to Explorer (everything, interceptor included)
 
 Explorer keeps running as the desktop shell (taskbar, Start menu, desktop);
 only the "open a folder" paths are redirected. Davesplorer's own "Show in
@@ -94,6 +95,35 @@ directly, so they still open the real thing. The Win+E redirect uses the
 shell's File Explorer object verb, a documented per-user override; if a
 Windows update ever stops honoring it, PowerToys Keyboard Manager can map
 Win+E to `davesplorer.exe` instead.
+
+The verbs above cover programs that ask the shell to open a folder, but not
+programs that run `explorer.exe /select,"file"` by name (a common way to
+"reveal" a file); nothing in the registry can redirect a launch by exe name.
+`-Interceptor` covers those too, system-wide. It installs `explorer_shim.exe`
+(built and staged beside `davesplorer.exe`, source in `src/platform`) as the
+Image File Execution Options debugger for `explorer.exe`: Windows then runs
+the shim in place of every `explorer.exe` launch. The shim reads the
+arguments and diverts only what it recognizes as browsing a folder (a folder
+path, or `/select` `/e` `/root` naming one) to Davesplorer; everything else,
+above all the argument-less launch that is the desktop shell itself, runs the
+real Explorer from a private copy, unchanged. Pass-through is the default, so
+an unrecognized launch never goes to Davesplorer and the shell can't be lost.
+
+This is admin-level and system-wide (it writes HKLM), and it is the same
+registry mechanism some malware uses to hijack the shell, so Defender or an
+antivirus may flag it. `register.ps1 -Interceptor` re-elevates itself for the
+one write. Recovery, should the desktop ever fail to appear: Ctrl+Shift+Esc
+for Task Manager, run `powershell`, then `register.ps1 -Unregister`.
+
+The shim has a dry-run mode for inspecting its routing without launching
+anything: set `DSP_SHIM_DRYRUN=1` and it appends each decision to
+`%TEMP%\dsp_shim.log` instead. For example:
+
+    $env:DSP_SHIM_DRYRUN=1
+    & .\explorer_shim.exe "C:\Windows\explorer.exe" "C:\Users"          # -> DAVESPLORER
+    & .\explorer_shim.exe "C:\Windows\explorer.exe" shell:MyComputerFolder  # -> EXPLORER
+    & .\explorer_shim.exe "C:\Windows\explorer.exe"                     # -> EXPLORER (the shell)
+    Get-Content $env:TEMP\dsp_shim.log
 
 ## Layout
 

@@ -147,6 +147,16 @@ add_custom_command(TARGET davesplorer POST_BUILD
             "${CMAKE_SOURCE_DIR}/assets" "${DSP_STAGE_DIR}/assets"
     COMMENT "Staging assets beside davesplorer.exe")
 
+# The Explorer interceptor: a standalone, dependency-free Win32 exe that
+# Windows runs in place of explorer.exe when register.ps1 -Interceptor is
+# used. Kept tiny and separate from the app because it runs on the shell's
+# startup path.
+add_executable(explorer_shim WIN32 src/platform/explorer_shim.cpp)
+target_link_libraries(explorer_shim PRIVATE shlwapi shell32)
+set_target_properties(explorer_shim PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${DSP_STAGE_DIR}"
+    OUTPUT_NAME explorer_shim)
+
 # The registration script is staged through a real dependency rather than a
 # POST_BUILD step: POST_BUILD only runs when the exe relinks, and a script
 # edit alone must still refresh the staged copy.
