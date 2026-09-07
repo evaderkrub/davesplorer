@@ -614,6 +614,16 @@ void TestAppState()
     CHECK_EQ(app::SelectedCount(state.active()), 1);
     CHECK_EQ(app::SelectedPaths(state.active())[0], file);
     CHECK_EQ(state.active().entries[(size_t)state.active().focused].name, "arg.txt");
+    // Explorer's own switches are accepted, so davesplorer.exe can be run
+    // with the arguments a program would give explorer.exe.
+    CHECK(app::ApplyStartArgument(state, "/select,\"" + file + "\""));
+    CHECK_EQ(state.active().path, tmp.path);
+    CHECK_EQ(state.active().selectOnLoad, "arg.txt");
+    CHECK(app::ApplyStartArgument(state, "/SELECT," + sub));   // a folder: shown selected in its parent
+    CHECK_EQ(state.active().path, tmp.path);
+    CHECK_EQ(state.active().selectOnLoad, "arg");
+    CHECK(app::ApplyStartArgument(state, "/e," + sub));
+    CHECK_EQ(state.active().path, sub);
     CHECK(!app::ApplyStartArgument(state, "::{20D04FE0-3AEA-1069-A2D8-08002B30309D}"));
     CHECK_EQ(state.active().path, "");
     CHECK(!app::ApplyStartArgument(state, app::JoinPath(tmp.path, "missing")));

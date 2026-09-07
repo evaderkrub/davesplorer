@@ -3,8 +3,10 @@
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
 #include "platform/Clipboard.h"
+#include "platform/Strings.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace app
 {
@@ -47,13 +49,29 @@ void InitAppState(AppState& state, const std::string& exeDir)
 
 bool ApplyStartArgument(AppState& state, const std::string& argument)
 {
-    std::string path = NormalizePath(argument);
+    std::string raw = argument;
+    // Explorer's own switches, so a program that runs
+    // `explorer.exe /select,"file"` or `/e,folder` can run davesplorer.exe
+    // with the same arguments unchanged. /select on a file selects it;
+    // on a folder it shows the parent with the folder selected.
+    bool selectMode = false;
+    for (const char* prefix : { "/select,", "/e,", "/root," })
+        {
+        const size_t n = strlen(prefix);
+        if (raw.size() >= n && platform::ToLowerAscii(raw.substr(0, n)) == prefix)
+            {
+            selectMode = prefix[1] == 's';
+            raw = raw.substr(n);
+            break;
+            }
+        }
+    std::string path = NormalizePath(raw);
     // Explorer quotes paths it passes along; a shell verb may leave the
     // quotes in.
     if (path.size() >= 2 && path.front() == '"' && path.back() == '"') path = NormalizePath(path.substr(1, path.size() - 2));
 
     std::string folder, select;
-    if (!path.empty() && platform::IsDirectory(path))
+    if (!path.empty() && platform::IsDirectory(path) && !(selectMode && !IsDriveRoot(path)))
         {
         folder = path;
         }

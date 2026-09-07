@@ -57,6 +57,9 @@ be copied to another Windows machine and run; nothing needs installing.
   end.
 - **Command line**: `davesplorer.exe <folder>` opens that folder;
   `davesplorer.exe <file>` opens the file's folder with the file selected.
+  Explorer's own switches work too (`/select,"path"`, `/e,folder`), so a
+  program that runs `explorer.exe /select,...` can run `davesplorer.exe`
+  with the same arguments.
 - **View options**: hidden items, file name extensions, navigation pane,
   status bar.
 - **Scaling**: `Ctrl++` / `Ctrl+-` / `Ctrl+0` or `Ctrl`+wheel zoom the whole
