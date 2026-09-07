@@ -66,18 +66,25 @@ void DrawShortcutBar(app::AppState& state, UiState& ui)
 
         if (assigned)
             {
-            // Icon in the app's red, name in text color, both clipped to the slot.
-            const std::string label = std::string(ICON_MD_FOLDER) + " " + app::LocationTitle(state, path) + id;
-            ImGui::PushStyleColor(ImGuiCol_Text, kFolderRed);
+            // The button carries only the ID; icon (in the app's red) and
+            // name (text color) are drawn by hand so they can differ in
+            // color, centered when they fit and clipped from the right
+            // when they do not.
+            const std::string name = app::LocationTitle(state, path);
             const ImVec2 start = ImGui::GetCursorScreenPos();
-            const bool clicked = ImGui::Button(label.c_str(), ImVec2(slotW, 0));
-            ImGui::PopStyleColor();
-            // Repaint the name in text color over the red label.
-            const float iconW = ImGui::CalcTextSize(ICON_MD_FOLDER " ").x;
-            const ImVec2 textPos(start.x + style.FramePadding.x + iconW, start.y + style.FramePadding.y);
-            const ImVec4 clip(start.x, start.y, start.x + slotW - style.FramePadding.x, start.y + ImGui::GetFrameHeight());
-            ImGui::GetWindowDrawList()->AddText(nullptr, 0.0f, textPos, p.text, app::LocationTitle(state, path).c_str(),
-                                                nullptr, 0.0f, &clip);
+            const bool clicked = ImGui::Button(id.c_str(), ImVec2(slotW, 0));
+            const float gap = style.ItemInnerSpacing.x;
+            const float iconW = ImGui::CalcTextSize(ICON_MD_FOLDER).x;
+            const float nameW = ImGui::CalcTextSize(name.c_str()).x;
+            const float inner = slotW - style.FramePadding.x * 2.0f;
+            const float contentW = iconW + gap + nameW;
+            const float x0 = start.x + style.FramePadding.x + (contentW < inner ? (inner - contentW) * 0.5f : 0.0f);
+            const float y0 = start.y + (ImGui::GetFrameHeight() - ImGui::GetTextLineHeight()) * 0.5f;
+            const ImVec4 clip(start.x + style.FramePadding.x, start.y, start.x + slotW - style.FramePadding.x,
+                              start.y + ImGui::GetFrameHeight());
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddText(nullptr, 0.0f, ImVec2(x0, y0), kFolderRed, ICON_MD_FOLDER, nullptr, 0.0f, &clip);
+            dl->AddText(nullptr, 0.0f, ImVec2(x0 + iconW + gap, y0), p.text, name.c_str(), nullptr, 0.0f, &clip);
             if (clicked) JumpTo(state, ui, path, ImGui::GetIO().KeyCtrl);
             TipOnHover(path.c_str());
             FileDropTarget(state, ui, path);
