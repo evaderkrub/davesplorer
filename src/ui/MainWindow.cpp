@@ -242,6 +242,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         if (ImGui::MenuItem("Split view down", "Ctrl+Shift+Down")) RequestSplitView(ui, tab.id, ImGuiDir_Down);
         ImGui::Separator();
         ImGui::MenuItem("Navigation pane", nullptr, &s.showNavPane);
+        ImGui::MenuItem("Shortcut bar", nullptr, &s.showShortcutBar);
         ImGui::MenuItem("Status bar", nullptr, &s.showStatusBar);
         ImGui::Separator();
         if (ImGui::MenuItem("Hidden items", nullptr, &s.showHidden))
@@ -388,6 +389,7 @@ void DrawFrame(app::AppState& state, UiState& ui)
     ImGui::PopStyleVar(3);
 
     DrawMenuBar(state, ui);
+    if (state.settings.showShortcutBar) DrawShortcutBar(state, ui);
 
     const ImGuiID dockspaceId = ImGui::GetID("MainDockspace");
     if (ui.resetLayoutRequested || ImGui::DockBuilderGetNode(dockspaceId) == nullptr)

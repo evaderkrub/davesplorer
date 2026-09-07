@@ -10,6 +10,7 @@
 #include "app/PathUtil.h"
 #include "app/Selection.h"
 #include "app/FileOps.h"
+#include "app/Shortcuts.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
@@ -617,6 +618,58 @@ void RegisterTests(ImGuiTestEngine* e)
         fx.ui.externalDrop.ctrl = true;
         ctx->Yield(3);
         IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "dropped.txt")));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "shortcut_bar_pin_jump_clear");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        for (std::string& s : fx.state.settings.shortcuts) s.clear();
+        const std::string sub = app::JoinPath(fx.root, "sub");
+
+        // Select the folder, click an empty slot: the slot takes it.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###sub");
+        ctx->SetRef(ui::kHostWindow);
+        ctx->ItemClick("**/###shortcut0");
+        ctx->Yield();
+        IM_CHECK(app::ShortcutAssigned(fx.state, 0));
+        IM_CHECK_STR_EQ(app::ShortcutPath(fx.state, 0).c_str(), sub.c_str());
+        IM_CHECK(!app::ShortcutAssigned(fx.state, 1));
+
+        // Nothing selected: an empty slot takes the folder being shown.
+        app::ClearSelection(fx.state.active());
+        ctx->ItemClick("**/###shortcut1");
+        ctx->Yield();
+        IM_CHECK_STR_EQ(app::ShortcutPath(fx.state, 1).c_str(), fx.root.c_str());
+
+        // From then on the slot jumps the active view there.
+        ctx->ItemClick("**/###shortcut0");
+        ctx->Yield(2);
+        IM_CHECK_STR_EQ(fx.state.active().path.c_str(), sub.c_str());
+        ctx->ItemClick("**/###shortcut1");
+        ctx->Yield(2);
+        IM_CHECK_STR_EQ(fx.state.active().path.c_str(), fx.root.c_str());
+
+        // Ctrl+click opens it in a new view.
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick("**/###shortcut0");
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        IM_CHECK_STR_EQ(fx.state.active().path.c_str(), sub.c_str());
+
+        // Right-click, Clear: empty again, and the file on disk agrees.
+        ctx->ItemClick("**/###shortcut0", ImGuiMouseButton_Right);
+        ctx->Yield();
+        ctx->ItemClick("//$FOCUSED/Clear");
+        ctx->Yield();
+        IM_CHECK(!app::ShortcutAssigned(fx.state, 0));
+        app::Settings onDisk;
+        IM_CHECK(app::LoadSettings(fx.state.settingsFile, onDisk));
+        IM_CHECK(onDisk.shortcuts[0].empty());
+        IM_CHECK_STR_EQ(onDisk.shortcuts[1].c_str(), fx.root.c_str());
+        for (std::string& s : fx.state.settings.shortcuts) s.clear();
     };
 
     t = IM_REGISTER_TEST(e, "explorer", "nav_pane_click");

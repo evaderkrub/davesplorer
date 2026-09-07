@@ -36,6 +36,7 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
     else if (key == "show_hidden")        s.showHidden = ParseBool(value);
     else if (key == "show_extensions")    s.showExtensions = ParseBool(value);
     else if (key == "show_nav_pane")      s.showNavPane = ParseBool(value);
+    else if (key == "show_shortcut_bar")  s.showShortcutBar = ParseBool(value);
     else if (key == "show_status_bar")    s.showStatusBar = ParseBool(value);
     else if (key == "show_details_pane")  s.showDetailsPane = ParseBool(value);
     else if (key == "start_path")         s.startPath = value;
@@ -43,6 +44,15 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
     else if (key == "window_width")       s.windowWidth = std::max(400, std::atoi(value.c_str()));
     else if (key == "window_height")      s.windowHeight = std::max(300, std::atoi(value.c_str()));
     else if (key == "window_maximized")   s.windowMaximized = ParseBool(value);
+    else if (key.rfind("shortcut_", 0) == 0)
+        {
+        const int slot = std::atoi(key.c_str() + 9);
+        if (slot >= 0 && slot < kShortcutSlots)
+            {
+            if (s.shortcuts.size() != (size_t)kShortcutSlots) s.shortcuts.assign((size_t)kShortcutSlots, "");
+            s.shortcuts[(size_t)slot] = value;
+            }
+        }
 }
 
 std::string SerializeSettings(const Settings& s)
@@ -53,6 +63,7 @@ std::string SerializeSettings(const Settings& s)
     out << "show_hidden=" << (s.showHidden ? 1 : 0) << '\n';
     out << "show_extensions=" << (s.showExtensions ? 1 : 0) << '\n';
     out << "show_nav_pane=" << (s.showNavPane ? 1 : 0) << '\n';
+    out << "show_shortcut_bar=" << (s.showShortcutBar ? 1 : 0) << '\n';
     out << "show_status_bar=" << (s.showStatusBar ? 1 : 0) << '\n';
     out << "show_details_pane=" << (s.showDetailsPane ? 1 : 0) << '\n';
     out << "start_path=" << s.startPath << '\n';
@@ -60,6 +71,8 @@ std::string SerializeSettings(const Settings& s)
     out << "window_width=" << s.windowWidth << '\n';
     out << "window_height=" << s.windowHeight << '\n';
     out << "window_maximized=" << (s.windowMaximized ? 1 : 0) << '\n';
+    for (size_t i = 0; i < s.shortcuts.size() && i < (size_t)kShortcutSlots; ++i)
+        if (!s.shortcuts[i].empty()) out << "shortcut_" << i << '=' << s.shortcuts[i] << '\n';
     return out.str();
 }
 

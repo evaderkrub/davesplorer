@@ -9,6 +9,7 @@
 #include "app/PathUtil.h"
 #include "app/Selection.h"
 #include "app/Settings.h"
+#include "app/Shortcuts.h"
 #include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
@@ -521,6 +522,51 @@ void TestClipboardAndDrop()
     CHECK(!app::DropPaths(state, { b }, "", app::DropAction::Copy, error));
 }
 
+void TestShortcuts()
+{
+    TempDir tmp("shortcuts");
+    const std::string sub = tmp.dir("sub");
+    tmp.file("a.txt");
+
+    app::AppState state;
+    app::InitAppState(state, tmp.path);
+    app::Tab& tab = state.active();
+    std::string error;
+    CHECK(app::NavigateTo(tab, tmp.path, error));
+    app::ReloadIfNeeded(tab, state.settings);
+
+    // Nothing selected: the folder being shown. One folder selected: that
+    // folder. A file selected: back to the folder being shown.
+    CHECK_EQ(app::ShortcutCandidate(tab), tmp.path);
+    for (size_t i = 0; i < tab.entries.size(); ++i)
+        if (tab.entries[i].name == "sub") app::ClickSelect(tab, app::VisiblePosOf(tab, (int)i), false, false);
+    CHECK_EQ(app::ShortcutCandidate(tab), sub);
+    app::SelectAll(tab);
+    CHECK_EQ(app::ShortcutCandidate(tab), tmp.path);
+
+    CHECK(!app::ShortcutAssigned(state, 0));
+    CHECK(!app::ShortcutAssigned(state, 99));
+    app::AssignShortcut(state, 3, sub);
+    CHECK(app::ShortcutAssigned(state, 3));
+    CHECK_EQ(app::ShortcutPath(state, 3), sub);
+    app::AssignShortcut(state, 99, sub);   // out of range is ignored
+    app::AssignShortcut(state, 4, "");     // empty is ignored
+    CHECK(!app::ShortcutAssigned(state, 4));
+
+    // Assigning writes settings.ini right away; the slot survives a reload.
+    app::Settings loaded;
+    CHECK(app::LoadSettings(state.settingsFile, loaded));
+    CHECK_EQ(loaded.shortcuts.size(), (size_t)app::kShortcutSlots);
+    CHECK_EQ(loaded.shortcuts[3], sub);
+    CHECK(loaded.shortcuts[0].empty());
+
+    app::ClearShortcut(state, 3);
+    CHECK(!app::ShortcutAssigned(state, 3));
+    app::Settings reloaded;   // a load overlays the file onto defaults, so start fresh
+    CHECK(app::LoadSettings(state.settingsFile, reloaded));
+    CHECK(reloaded.shortcuts[3].empty());
+}
+
 void TestAppState()
 {
     TempDir tmp("state");
@@ -564,6 +610,7 @@ int main()
     TestSelection();
     TestFileOps();
     TestClipboardAndDrop();
+    TestShortcuts();
     TestAppState();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures;

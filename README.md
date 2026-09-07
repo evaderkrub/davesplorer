@@ -10,6 +10,12 @@ be copied to another Windows machine and run; nothing needs installing.
   pane on the left (Quick access, This PC, expandable drive tree), one or
   more folder views on the right, status bar underneath each. Everything
   docks and can be rearranged; **View > Reset layout** restores the default.
+- **Shortcut bar** across the top: ten slots, empty until clicked. Clicking
+  an empty slot pins the selected folder (or the folder being shown when
+  nothing is selected); from then on the slot jumps the active view there,
+  Ctrl+click opens it in a new view, and files can be dropped on it.
+  Right-click a slot for Open, Open in new view, Assign, or Clear. Slots
+  persist in `settings.ini`; **View > Shortcut bar** hides the bar.
 - **Address bar** with clickable breadcrumbs. Click the empty part (or
   `Ctrl+L`) to type a path. Deep paths collapse into a `...` menu.
 - **Search** box filters the current folder as you type (`Ctrl+F`).

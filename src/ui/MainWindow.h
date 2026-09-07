@@ -39,6 +39,7 @@ void ZoomBy(app::AppState& state, float delta);
 void ZoomReset(app::AppState& state);
 
 // Pane bodies, each drawn inside its own Begin/End by DrawFrame.
+void DrawShortcutBar(app::AppState& state, UiState& ui);   // inside the host window, under the menu
 void DrawNavPane(app::AppState& state, UiState& ui);
 // One location's window. Returns true when the user closed it.
 bool DrawView(app::AppState& state, UiState& ui, int tabIndex);

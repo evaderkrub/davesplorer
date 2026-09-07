@@ -111,6 +111,7 @@ add_library(dsp_app STATIC
     src/app/Selection.cpp
     src/app/Settings.cpp
     src/app/FileOps.cpp
+    src/app/Shortcuts.cpp
     src/platform/Strings.cpp
     src/platform/Paths.cpp
     src/platform/FileSystem.cpp
@@ -125,6 +126,7 @@ add_library(dsp_ui STATIC
     src/ui/Fonts.cpp
     src/ui/Widgets.cpp
     src/ui/DragDrop.cpp
+    src/ui/ShortcutBar.cpp
     src/ui/MainWindow.cpp
     src/ui/NavPane.cpp
     src/ui/FilesPane.cpp
