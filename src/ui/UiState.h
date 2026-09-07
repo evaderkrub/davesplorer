@@ -50,6 +50,25 @@ struct UiState
     int      selectTabId = -1;     // programmatic tab switch (Ctrl+Tab)
     bool     filesWantFocus = false;
 
+    // Drag and drop inside the app: the paths being dragged and the folder
+    // under the cursor (last frame's answer, used by the drag tooltip).
+    std::vector<std::string> dragPaths;
+    std::string dropHoverPath;
+    std::string dropHoverPathNext;
+    bool        rowDropHovered = false;      // a row took the drop this frame; the background must not
+    bool        externalDragRequested = false; // the drag left the window: the host hands it to OLE
+
+    // A drag from another program, as SDL reports it.
+    struct ExternalDrop
+        {
+        bool active = false;
+        bool completed = false;
+        bool ctrl = false, shift = false;
+        std::vector<std::string> paths;
+        std::string targetPath;              // folder under the cursor, if any
+        bool haveTarget = false;
+        } externalDrop;
+
     float dpiScale = 1.0f;         // from the host each frame
     bool  resetLayoutRequested = false;
     bool  showMetrics = false;

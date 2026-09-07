@@ -2,9 +2,12 @@
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
 #include "app/Selection.h"
+#include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Shell.h"
 #include "platform/Strings.h"
+
+#include <cctype>
 
 namespace app
 {
@@ -104,38 +107,96 @@ bool DeleteSelected(Tab& tab, bool permanent, std::string& error)
     return ok;
 }
 
-void CopySelection(AppState& state, Tab& tab, bool cut)
+bool CopySelection(AppState& state, Tab& tab, bool cut, std::string& error)
 {
-    if (tab.path.empty()) return;
-    state.clipboard.paths = SelectedPaths(tab);
+    if (tab.path.empty()) return false;
+    const std::vector<std::string> paths = SelectedPaths(tab);
+    if (paths.empty()) return true;
+    if (!platform::SetClipboardFiles(paths, cut, error)) return false;
+    state.clipboard.paths = paths;
     state.clipboard.cut = cut;
+    state.clipboardOwnedSeq = platform::ClipboardSequence();
+    state.clipboardHasFiles = true;
+    return true;
 }
 
 bool CanPaste(const AppState& state, const Tab& tab)
 {
-    return !state.clipboard.paths.empty() && !tab.path.empty();
+    return state.clipboardHasFiles && !tab.path.empty();
 }
 
 bool Paste(AppState& state, Tab& tab, std::string& error)
 {
-    if (!CanPaste(state, tab)) return false;
-    bool sameFolder = true;
-    for (const std::string& p : state.clipboard.paths)
-        if (ParentPath(p) != tab.path) sameFolder = false;
-
-    bool ok;
-    if (state.clipboard.cut)
+    if (tab.path.empty()) return false;
+    std::vector<std::string> paths;
+    bool cut = false;
+    if (!platform::GetClipboardFiles(paths, cut)) return false;
+    const bool ok = DropPaths(state, paths, tab.path, cut ? DropAction::Move : DropAction::Copy, error);
+    // A cut is one-shot: Explorer empties the clipboard after the move so
+    // a second paste cannot move the files again.
+    if (ok && cut)
         {
-        if (sameFolder) return true;   // moving a file onto itself is a no-op
-        ok = platform::MovePaths(state.clipboard.paths, tab.path, error);
-        // A cut is one-shot; a second paste must not move the files again.
-        if (ok) state.clipboard = Clipboard{};
+        platform::ClearClipboard();
+        state.clipboard = Clipboard{};
+        state.clipboardHasFiles = false;
+        }
+    return ok;
+}
+
+DropAction DefaultDropAction(const std::vector<std::string>& sources, const std::string& destDir, bool ctrl, bool shift)
+{
+    if (ctrl) return DropAction::Copy;
+    if (shift) return DropAction::Move;
+    if (sources.empty() || destDir.size() < 2 || sources[0].size() < 2) return DropAction::Copy;
+    const bool sameDrive = std::toupper((unsigned char)sources[0][0]) == std::toupper((unsigned char)destDir[0]) &&
+                           sources[0][1] == ':' && destDir[1] == ':';
+    return sameDrive ? DropAction::Move : DropAction::Copy;
+}
+
+bool CanDropOn(const std::vector<std::string>& sources, const std::string& destDir)
+{
+    if (destDir.empty() || sources.empty()) return false;
+    const std::string destLower = platform::ToLowerAscii(destDir);
+    for (const std::string& src : sources)
+        {
+        const std::string srcLower = platform::ToLowerAscii(src);
+        if (srcLower == destLower) return false;
+        // A folder into its own subtree.
+        if (destLower.size() > srcLower.size() && destLower.compare(0, srcLower.size(), srcLower) == 0 &&
+            destLower[srcLower.size()] == '\\')
+            return false;
+        }
+    return true;
+}
+
+bool DropPaths(AppState& state, const std::vector<std::string>& sources, const std::string& destDir,
+               DropAction action, std::string& error)
+{
+    if (destDir.empty())
+        {
+        error = "Items can't be dropped on This PC. Choose a folder.";
+        return false;
+        }
+    if (!CanDropOn(sources, destDir))
+        {
+        error = "The destination folder is the source folder or one of its subfolders.";
+        return false;
+        }
+    bool sameFolder = true;
+    for (const std::string& p : sources)
+        if (platform::ToLowerAscii(ParentPath(p)) != platform::ToLowerAscii(destDir)) sameFolder = false;
+
+    bool ok = true;
+    if (action == DropAction::Move)
+        {
+        // Moving files onto the folder they are in is a no-op, not an error.
+        if (!sameFolder) ok = platform::MovePaths(sources, destDir, error);
         }
     else
         {
-        ok = platform::CopyPaths(state.clipboard.paths, tab.path, sameFolder, error);
+        ok = platform::CopyPaths(sources, destDir, sameFolder, error);
         }
-    Refresh(tab);
+    RefreshAll(state);
     return ok;
 }
 

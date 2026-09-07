@@ -9,6 +9,8 @@
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
 #include "app/Selection.h"
+#include "app/FileOps.h"
+#include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
 #include "ui/Fonts.h"
@@ -75,6 +77,7 @@ void GoToScratch(ImGuiTestContext* ctx, Fixture& fx)
     fx.state.activeTab = 0;
     app::OpenTab(fx.state, fx.root);
     fx.state.settings.uiScale = 1.0f;
+    fx.state.settings.showHidden = false;
     fx.ui = ui::UiState{};
     ctx->Yield(3);
 }
@@ -410,6 +413,154 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)2);
     };
 
+    t = IM_REGISTER_TEST(e, "explorer", "cut_paste_moves_and_empties_clipboard");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        ctx->SetRef(ui::kFilesWindow);
+        ctx->ItemClick("**/###beta.md");
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_X);
+        ctx->Yield();
+        IM_CHECK(fx.state.clipboard.cut);
+        IM_CHECK(platform::ClipboardHasFiles());
+        ctx->ItemDoubleClick("**/###sub");
+        ctx->Yield(2);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_V);
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "beta.md")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "beta.md")));
+        IM_CHECK(!platform::ClipboardHasFiles());
+        IM_CHECK(!app::CanPaste(fx.state, fx.state.active()));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "drag_row_onto_folder_moves");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        ctx->SetRef(ui::kFilesWindow);
+        // Step by step, so a failure says which stage broke.
+        ctx->MouseMove("**/###alpha.txt");
+        ctx->MouseDown(0);
+        ctx->MouseLiftDragThreshold();
+        ctx->MouseMove("**/###sub", ImGuiTestOpFlags_NoCheckHoveredId);
+        ctx->Yield(2);
+        IM_CHECK(ImGui::IsDragDropActive());
+        IM_CHECK_EQ(fx.ui.dragPaths.size(), (size_t)1);
+        IM_CHECK_STR_EQ(fx.ui.dropHoverPath.c_str(), app::JoinPath(fx.root, "sub").c_str());
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK_STR_EQ(fx.ui.dialogMessage.c_str(), "");
+        IM_CHECK(ImGui::GetTopMostPopupModal() == nullptr);
+        IM_CHECK(!ImGui::IsDragDropActive());
+        IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)3);
+        IM_CHECK(fx.ui.dragPaths.empty());
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "ctrl_drag_copies_selection");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        ctx->SetRef(ui::kFilesWindow);
+        // Two selected rows dragged together: both are copied.
+        ctx->ItemClick("**/###alpha.txt");
+        ctx->KeyDown(ImGuiMod_Ctrl);
+        ctx->ItemClick("**/###gamma.png");
+        ctx->ItemDragAndDrop("**/###alpha.txt", "**/###sub");
+        ctx->KeyUp(ImGuiMod_Ctrl);
+        ctx->Yield(3);
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "gamma.png")));
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "gamma.png")));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "drag_onto_tab_and_breadcrumb");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        app::OpenTab(fx.state, sub);
+        const int subTabId = fx.state.active().id;
+        ctx->Yield(2);   // let the tab bar auto-select the new tab first
+        fx.ui.selectTabId = fx.state.tabs[0].id;
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.activeTab, 0);
+        ctx->SetRef(ui::kFilesWindow);
+        // Onto the other tab: into that tab's folder.
+        ctx->ItemDragAndDrop("**/###alpha.txt", ("**/###tab" + std::to_string(subTabId)).c_str());
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        // From inside sub, onto the parent's breadcrumb: back up it goes.
+        fx.ui.selectTabId = subTabId;
+        ctx->Yield(3);
+        const size_t n = app::Breadcrumbs(sub).size();
+        ctx->ItemDragAndDrop("**/###alpha.txt", ("**/###crumb" + std::to_string(n - 2)).c_str());
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "drag_onto_nav_pane_folder");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        // The tree shows the scratch folder's own subfolder once the path
+        // to it is expanded; navigate there so the tree opens that branch,
+        // then drag from the parent tab.
+        // %TEMP% sits under the hidden AppData, which the tree skips unless
+        // hidden items are shown.
+        fx.state.settings.showHidden = true;
+        fx.ui.treeChildren.clear();
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        std::string error;
+        app::NavigateTo(fx.state.active(), sub, error);
+        ctx->Yield(3);
+        app::NavigateTo(fx.state.active(), fx.root, error);
+        ctx->Yield(3);
+        ctx->SetRef(ui::kFilesWindow);
+        ctx->ItemDragAndDrop("**/###gamma.png", "//Navigation/**/###sub");
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "gamma.png")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "gamma.png")));
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "drop_from_other_program");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        // Stand in for SDL's drop events: a file from outside the folder
+        // hovering the "sub" row, then released.
+        const std::string outside = app::JoinPath(fx.exeDir, "dropped.txt");
+        WriteFile(outside, "from elsewhere");
+        ctx->SetRef(ui::kFilesWindow);
+        fx.ui.externalDrop = ui::UiState::ExternalDrop{};
+        fx.ui.externalDrop.active = true;
+        fx.ui.externalDrop.paths.push_back(outside);
+        ctx->MouseMove("**/###sub");
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.externalDrop.haveTarget);
+        IM_CHECK_STR_EQ(fx.ui.externalDrop.targetPath.c_str(), app::JoinPath(fx.root, "sub").c_str());
+        fx.ui.externalDrop.active = false;
+        fx.ui.externalDrop.completed = true;
+        fx.ui.externalDrop.ctrl = true;   // copy, so the source stays
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(app::JoinPath(fx.root, "sub"), "dropped.txt")));
+        IM_CHECK(platform::PathExists(outside));
+        IM_CHECK(!fx.ui.externalDrop.completed);
+
+        // Over nothing in particular: the current folder takes it.
+        fx.ui.externalDrop = ui::UiState::ExternalDrop{};
+        fx.ui.externalDrop.paths.push_back(outside);
+        fx.ui.externalDrop.completed = true;
+        fx.ui.externalDrop.ctrl = true;
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "dropped.txt")));
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "nav_pane_click");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
@@ -451,10 +602,18 @@ void RegisterTests(ImGuiTestEngine* e)
 
 } // namespace
 
+// Usage: davesplorer_e2e_tests [filter] [-v]
+//   filter  runs only tests whose name matches (test-engine filter syntax)
+//   -v      debug-level log for each test
 int main(int argc, char** argv)
 {
-    (void)argc;
-    (void)argv;
+    const char* filter = nullptr;
+    bool verbose = false;
+    for (int i = 1; i < argc; ++i)
+        {
+        if (std::string(argv[i]) == "-v") verbose = true;
+        else filter = argv[i];
+        }
 
     Fixture fx;
     g_fx = &fx;
@@ -485,7 +644,7 @@ int main(int argc, char** argv)
 
     ImGuiTestEngine* engine = ImGuiTestEngine_CreateContext();
     ImGuiTestEngineIO& teio = ImGuiTestEngine_GetIO(engine);
-    teio.ConfigVerboseLevel = ImGuiTestVerboseLevel_Warning;
+    teio.ConfigVerboseLevel = verbose ? ImGuiTestVerboseLevel_Debug : ImGuiTestVerboseLevel_Warning;
     teio.ConfigVerboseLevelOnError = ImGuiTestVerboseLevel_Debug;
     teio.ConfigRunSpeed = ImGuiTestRunSpeed_Fast;
     teio.ConfigNoThrottle = true;
@@ -494,7 +653,7 @@ int main(int argc, char** argv)
     RegisterTests(engine);
     ImGuiTestEngine_Start(engine, ImGui::GetCurrentContext());
     ImGuiTestEngine_InstallDefaultCrashHandler();
-    ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, nullptr, ImGuiTestRunFlags_RunFromCommandLine);
+    ImGuiTestEngine_QueueTests(engine, ImGuiTestGroup_Tests, filter, ImGuiTestRunFlags_RunFromCommandLine);
 
     int frames = 0;
     while (!ImGuiTestEngine_IsTestQueueEmpty(engine) && frames < 60 * 60 * 5)
@@ -514,8 +673,11 @@ int main(int argc, char** argv)
     ImVector<ImGuiTest*> tests;
     ImGuiTestEngine_GetTestList(engine, &tests);
     for (ImGuiTest* test : tests)
-        std::printf("%-8s %s/%s\n", test->Output.Status == ImGuiTestStatus_Success ? "ok" : "FAILED",
-                    test->Category, test->Name);
+        {
+        const char* status = test->Output.Status == ImGuiTestStatus_Success ? "ok"
+                           : test->Output.Status == ImGuiTestStatus_Unknown ? "skipped" : "FAILED";
+        std::printf("%-8s %s/%s\n", status, test->Category, test->Name);
+        }
 
     ImGuiTestEngine_Stop(engine);
     ImGui::DestroyContext();

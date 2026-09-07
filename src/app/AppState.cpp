@@ -2,6 +2,7 @@
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
+#include "platform/Clipboard.h"
 
 #include <algorithm>
 
@@ -81,6 +82,18 @@ void TickAppState(AppState& state)
 {
     for (Tab& tab : state.tabs)
         ReloadIfNeeded(tab, state.settings);
+
+    state.clipboardHasFiles = platform::ClipboardHasFiles();
+    // Someone else wrote the clipboard: the ghosted cut list no longer
+    // describes what a paste would do.
+    if (!state.clipboard.paths.empty() && platform::ClipboardSequence() != state.clipboardOwnedSeq)
+        state.clipboard = Clipboard{};
+}
+
+void RefreshAll(AppState& state)
+{
+    for (Tab& tab : state.tabs)
+        tab.needsReload = true;
 }
 
 std::string LocationTitle(const AppState& state, const std::string& path)

@@ -22,8 +22,28 @@ bool CreateFileIn(Tab& tab, const std::string& name, std::string& error);
 bool RenameEntry(Tab& tab, int entryIndex, const std::string& newName, std::string& error);
 bool DeleteSelected(Tab& tab, bool permanent, std::string& error);
 
-void CopySelection(AppState& state, Tab& tab, bool cut);
+// Cut/copy place the selection on the Windows clipboard as CF_HDROP.
+bool CopySelection(AppState& state, Tab& tab, bool cut, std::string& error);
 bool CanPaste(const AppState& state, const Tab& tab);
+// Pastes whatever file list the clipboard holds, from any program.
 bool Paste(AppState& state, Tab& tab, std::string& error);
+
+enum class DropAction
+{
+    Move,
+    Copy,
+};
+
+// Explorer's rule: same drive moves, another drive copies; Ctrl forces a
+// copy and Shift forces a move.
+DropAction DefaultDropAction(const std::vector<std::string>& sources, const std::string& destDir, bool ctrl, bool shift);
+
+// True when dropping these sources on destDir would do something: not the
+// folder they already sit in (for a move), not a folder into itself.
+bool CanDropOn(const std::vector<std::string>& sources, const std::string& destDir);
+
+// Copies or moves sources into destDir and refreshes every tab.
+bool DropPaths(AppState& state, const std::vector<std::string>& sources, const std::string& destDir,
+               DropAction action, std::string& error);
 
 } // namespace app

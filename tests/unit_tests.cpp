@@ -9,12 +9,14 @@
 #include "app/PathUtil.h"
 #include "app/Selection.h"
 #include "app/Settings.h"
+#include "platform/Clipboard.h"
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
 
 #include <windows.h>
 
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -78,6 +80,43 @@ struct TempDir
         std::string error;
         platform::CreateFolder(p, error);
         return p;
+    }
+};
+
+// The clipboard tests use the real clipboard. Whatever text was there is put
+// back afterwards; anything else is lost, which is the price of testing the
+// real thing.
+struct ClipboardKeeper
+{
+    std::wstring text;
+    bool hadText = false;
+    ClipboardKeeper()
+    {
+        if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(nullptr)) return;
+        if (HGLOBAL h = GetClipboardData(CF_UNICODETEXT))
+            if (const wchar_t* p = (const wchar_t*)GlobalLock(h))
+                {
+                text = p;
+                hadText = true;
+                GlobalUnlock(h);
+                }
+        CloseClipboard();
+    }
+    ~ClipboardKeeper()
+    {
+        if (!OpenClipboard(nullptr)) return;
+        EmptyClipboard();
+        if (hadText)
+            {
+            const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+            if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, bytes))
+                {
+                memcpy(GlobalLock(h), text.c_str(), bytes);
+                GlobalUnlock(h);
+                SetClipboardData(CF_UNICODETEXT, h);
+                }
+            }
+        CloseClipboard();
     }
 };
 
@@ -369,12 +408,15 @@ void TestFileOps()
     CHECK(platform::PathExists(app::JoinPath(tmp.path, "renamed.txt")));
     CHECK(!platform::PathExists(app::JoinPath(tmp.path, "a.txt")));
 
-    // Copy within the same folder makes " - Copy".
+    // Copy within the same folder makes " - Copy". This goes through the
+    // real Windows clipboard, whose previous contents are put back after.
+    ClipboardKeeper keeper;
     app::ClearSelection(tab);
     for (size_t i = 0; i < tab.entries.size(); ++i)
         if (tab.entries[i].name == "renamed.txt") tab.selected[i] = 1;
-    app::CopySelection(state, tab, false);
+    CHECK(app::CopySelection(state, tab, false, error));
     CHECK(app::CanPaste(state, tab));
+    CHECK(state.clipboard.paths.size() == 1 && !state.clipboard.cut);
     CHECK(app::Paste(state, tab, error));
     app::ReloadIfNeeded(tab, state.settings);
     CHECK(platform::PathExists(app::JoinPath(tmp.path, "renamed - Copy.txt")));
@@ -383,14 +425,26 @@ void TestFileOps()
     app::ClearSelection(tab);
     for (size_t i = 0; i < tab.entries.size(); ++i)
         if (tab.entries[i].name == "renamed - Copy.txt") tab.selected[i] = 1;
-    app::CopySelection(state, tab, true);
+    CHECK(app::CopySelection(state, tab, true, error));
+    CHECK(state.clipboard.cut);
     CHECK(app::NavigateTo(tab, app::JoinPath(tmp.path, "New folder"), error));
     app::ReloadIfNeeded(tab, state.settings);
     CHECK(app::Paste(state, tab, error));
     CHECK(!app::CanPaste(state, tab));
+    CHECK(!platform::ClipboardHasFiles());
     app::ReloadIfNeeded(tab, state.settings);
     CHECK(platform::PathExists(app::JoinPath(tab.path, "renamed - Copy.txt")));
     CHECK(!platform::PathExists(app::JoinPath(tmp.path, "renamed - Copy.txt")));
+
+    // A file list placed on the clipboard by another program pastes too.
+    CHECK(platform::SetClipboardFiles({ app::JoinPath(tmp.path, "renamed.txt") }, false, error));
+    app::TickAppState(state);
+    CHECK(state.clipboard.paths.empty());   // not ours, so nothing is ghosted
+    CHECK(app::CanPaste(state, tab));
+    CHECK(app::Paste(state, tab, error));
+    app::ReloadIfNeeded(tab, state.settings);
+    CHECK(platform::PathExists(app::JoinPath(tab.path, "renamed.txt")));
+    CHECK(platform::PathExists(app::JoinPath(tmp.path, "renamed.txt")));
 
     // Permanent delete of the selection.
     app::SelectAll(tab);
@@ -402,6 +456,69 @@ void TestFileOps()
     CHECK(app::NavigateTo(tab, "", error));
     CHECK(!app::CreateFolderIn(tab, "x", error));
     CHECK(!app::DeleteSelected(tab, true, error));
+}
+
+void TestClipboardAndDrop()
+{
+    ClipboardKeeper keeper;
+    TempDir tmp("drop");
+    const std::string a = tmp.file("a.txt", "aaa");
+    const std::string b = tmp.file("b.txt", "bb");
+    const std::string sub = tmp.dir("sub");
+    const std::string deep = app::JoinPath(sub, "deep");
+    std::string error;
+    platform::CreateFolder(deep, error);
+
+    // Clipboard round trip with the cut flag.
+    std::vector<std::string> back;
+    bool cut = true;
+    CHECK(platform::SetClipboardFiles({ a, b }, false, error));
+    CHECK(platform::ClipboardHasFiles());
+    CHECK(platform::GetClipboardFiles(back, cut));
+    CHECK_EQ(back.size(), (size_t)2);
+    CHECK_EQ(back[0], a);
+    CHECK(!cut);
+    CHECK(platform::SetClipboardFiles({ b }, true, error));
+    CHECK(platform::GetClipboardFiles(back, cut));
+    CHECK_EQ(back.size(), (size_t)1);
+    CHECK(cut);
+    CHECK(platform::ClearClipboard());
+    CHECK(!platform::ClipboardHasFiles());
+    CHECK(!platform::GetClipboardFiles(back, cut));
+
+    // Explorer's drop rule.
+    CHECK(app::DefaultDropAction({ a }, sub, false, false) == app::DropAction::Move);
+    CHECK(app::DefaultDropAction({ a }, sub, true, false) == app::DropAction::Copy);
+    CHECK(app::DefaultDropAction({ a }, "Z:\\elsewhere", false, false) == app::DropAction::Copy);
+    CHECK(app::DefaultDropAction({ a }, "Z:\\elsewhere", false, true) == app::DropAction::Move);
+
+    CHECK(app::CanDropOn({ a }, sub));
+    CHECK(!app::CanDropOn({ sub }, sub));
+    CHECK(!app::CanDropOn({ sub }, deep));       // a folder into its own subtree
+    CHECK(app::CanDropOn({ a }, tmp.path));      // same folder is allowed (copy makes " - Copy")
+    CHECK(!app::CanDropOn({ a }, ""));
+
+    app::AppState state;
+    state.tabs.emplace_back();
+    CHECK(app::NavigateTo(state.tabs[0], tmp.path, error));
+    app::TickAppState(state);
+
+    CHECK(app::DropPaths(state, { a }, sub, app::DropAction::Move, error));
+    CHECK(platform::PathExists(app::JoinPath(sub, "a.txt")));
+    CHECK(!platform::PathExists(a));
+    CHECK(state.tabs[0].needsReload);
+
+    CHECK(app::DropPaths(state, { b }, sub, app::DropAction::Copy, error));
+    CHECK(platform::PathExists(app::JoinPath(sub, "b.txt")));
+    CHECK(platform::PathExists(b));
+
+    // Moving onto the folder the file is in is a quiet no-op.
+    CHECK(app::DropPaths(state, { b }, tmp.path, app::DropAction::Move, error));
+    CHECK(platform::PathExists(b));
+
+    CHECK(!app::DropPaths(state, { sub }, deep, app::DropAction::Move, error));
+    CHECK(!error.empty());
+    CHECK(!app::DropPaths(state, { b }, "", app::DropAction::Copy, error));
 }
 
 void TestAppState()
@@ -446,6 +563,7 @@ int main()
     TestNavigationAndListing();
     TestSelection();
     TestFileOps();
+    TestClipboardAndDrop();
     TestAppState();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures;

@@ -1,4 +1,5 @@
 #include "ui/MainWindow.h"
+#include "ui/DragDrop.h"
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
@@ -68,6 +69,7 @@ void DrawFolderNode(app::AppState& state, UiState& ui, const std::string& path, 
     const bool open = ImGui::TreeNodeEx(shown.c_str(), flags);
     ImGui::PopStyleColor();
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) Navigate(state, ui, path);
+    FileDropTarget(state, ui, path);
 
     if (open)
         {
@@ -96,6 +98,7 @@ void DrawNavPane(app::AppState& state, UiState& ui)
                 (tab.path == kf.path ? ImGuiTreeNodeFlags_Selected : 0));
             ImGui::PopStyleColor();
             if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) Navigate(state, ui, kf.path);
+            FileDropTarget(state, ui, kf.path);
             }
         ImGui::TreePop();
         }

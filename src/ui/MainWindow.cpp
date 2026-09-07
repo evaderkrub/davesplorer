@@ -1,4 +1,5 @@
 #include "ui/MainWindow.h"
+#include "ui/DragDrop.h"
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
@@ -158,8 +159,9 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
 
     if (ImGui::BeginMenu("Edit"))
         {
-        if (ImGui::MenuItem("Cut", "Ctrl+X", false, haveSelection && inFolder)) app::CopySelection(state, tab, true);
-        if (ImGui::MenuItem("Copy", "Ctrl+C", false, haveSelection && inFolder)) app::CopySelection(state, tab, false);
+        std::string clipError;
+        if (ImGui::MenuItem("Cut", "Ctrl+X", false, haveSelection && inFolder) && !app::CopySelection(state, tab, true, clipError)) ShowError(ui, clipError);
+        if (ImGui::MenuItem("Copy", "Ctrl+C", false, haveSelection && inFolder) && !app::CopySelection(state, tab, false, clipError)) ShowError(ui, clipError);
         if (ImGui::MenuItem("Paste", "Ctrl+V", false, app::CanPaste(state, tab)))
             {
             std::string error;
@@ -304,6 +306,8 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
 
 void DrawFrame(app::AppState& state, UiState& ui)
 {
+    BeginDragDropFrame(state, ui);
+
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);

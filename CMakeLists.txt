@@ -114,6 +114,8 @@ add_library(dsp_app STATIC
     src/platform/Strings.cpp
     src/platform/Paths.cpp
     src/platform/FileSystem.cpp
+    src/platform/Clipboard.cpp
+    src/platform/DragDrop.cpp
     src/platform/Shell.cpp)
 target_include_directories(dsp_app PUBLIC src)
 target_link_libraries(dsp_app PUBLIC dsp_strict shell32 ole32 shlwapi)
@@ -122,6 +124,7 @@ add_library(dsp_ui STATIC
     src/ui/Theme.cpp
     src/ui/Fonts.cpp
     src/ui/Widgets.cpp
+    src/ui/DragDrop.cpp
     src/ui/MainWindow.cpp
     src/ui/NavPane.cpp
     src/ui/FilesPane.cpp

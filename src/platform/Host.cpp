@@ -1,4 +1,5 @@
 #include "platform/Host.h"
+#include "platform/DragDrop.h"
 #include "platform/Paths.h"
 #include "platform/Strings.h"
 
@@ -9,6 +10,7 @@
 #include "ui/UiState.h"
 
 #include <SDL3/SDL.h>
+#include <windows.h>
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
@@ -113,9 +115,37 @@ int RunApplication(int argc, char** argv)
             do
                 {
                 ImGui_ImplSDL3_ProcessEvent(&event);
-                if (event.type == SDL_EVENT_QUIT) running = false;
-                if (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == SDL_GetWindowID(window))
-                    running = false;
+                switch (event.type)
+                    {
+                    case SDL_EVENT_QUIT:
+                        running = false;
+                        break;
+                    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+                        if (event.window.windowID == SDL_GetWindowID(window)) running = false;
+                        break;
+                    // A drag from another program. OLE owns the mouse while
+                    // it lasts, so the drop position is fed to ImGui by hand
+                    // for the panes to find the folder under the cursor.
+                    case SDL_EVENT_DROP_BEGIN:
+                        uiState.externalDrop = ui::UiState::ExternalDrop{};
+                        uiState.externalDrop.active = true;
+                        break;
+                    case SDL_EVENT_DROP_POSITION:
+                        io.AddMousePosEvent(event.drop.x, event.drop.y);
+                        break;
+                    case SDL_EVENT_DROP_FILE:
+                        io.AddMousePosEvent(event.drop.x, event.drop.y);
+                        if (event.drop.data) uiState.externalDrop.paths.push_back(event.drop.data);
+                        break;
+                    case SDL_EVENT_DROP_COMPLETE:
+                        uiState.externalDrop.active = false;
+                        uiState.externalDrop.completed = true;
+                        uiState.externalDrop.ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                        uiState.externalDrop.shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                        break;
+                    default:
+                        break;
+                    }
                 }
             while (SDL_PollEvent(&event));
             }
@@ -144,6 +174,23 @@ int RunApplication(int argc, char** argv)
         SDL_RenderClear(renderer);
         ImGui_ImplSDLRenderer3_RenderDrawData(ImGui::GetDrawData(), renderer);
         SDL_RenderPresent(renderer);
+
+        // An in-app drag crossed the window edge: hand it to OLE so Explorer
+        // and other programs can take it. DoDragDrop blocks until the drop;
+        // the button-up happens while OLE has the mouse, so ImGui is told
+        // about it afterwards or it would keep dragging.
+        if (uiState.externalDragRequested)
+            {
+            uiState.externalDragRequested = false;
+            const std::vector<std::string> paths = uiState.dragPaths;
+            uiState.dragPaths.clear();
+            ImGui::ClearDragDrop();
+            io.AddMouseButtonEvent(0, false);
+            DragOutcome outcome;
+            std::string error;
+            if (!DragFilesOut(paths, outcome, error)) state.statusMessage = error;
+            app::RefreshAll(state);
+            }
         }
 
     // Window geometry goes back into settings so the next launch opens the

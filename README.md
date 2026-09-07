@@ -25,9 +25,20 @@ be copied to another Windows machine and run; nothing needs installing.
   close, `+` button on the tab bar. Closing the last tab exits.
 - **File operations**: New folder (`Ctrl+Shift+N`), new text file, Rename
   (`F2`), Delete to Recycle Bin (`Del`), Delete permanently (`Shift+Del`),
-  Cut/Copy/Paste (`Ctrl+X`/`C`/`V`) between folders and tabs, Copy as path.
-  Copy and move go through the Windows shell, so its progress and conflict
-  dialogs appear exactly as they do in Explorer.
+  Copy as path. Copy and move go through the Windows shell, so its progress
+  and conflict dialogs appear exactly as they do in Explorer.
+- **Cut, copy and paste** (`Ctrl+X`/`C`/`V`) use the real Windows clipboard
+  (`CF_HDROP` plus the preferred drop effect), so files copied in Explorer
+  paste here and files copied here paste in Explorer. Cut items show ghosted
+  until pasted; a cut+paste moves and then empties the clipboard.
+- **Drag and drop**: drag selected items onto a folder row, the empty part
+  of the list, a folder in the navigation pane, another tab, or a breadcrumb.
+  Same drive moves, another drive copies; `Ctrl` forces copy, `Shift` forces
+  move, and the drag tooltip says which. A drag parked over a tab or a closed
+  tree node opens it. Files dragged in from Explorer or any other program
+  land in the folder under the cursor; dragging out of the window hands the
+  items to Windows, so they can be dropped on Explorer, the desktop, or an
+  editor.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here".
 - **View options**: hidden items, file name extensions, navigation pane,
@@ -88,7 +99,13 @@ Project code compiles with `/W4 /WX /permissive-`.
   ImGui Test Engine: it types into the address bar, double-clicks folders,
   uses Back/Forward/Up and the breadcrumbs, filters with the search box,
   selects with Ctrl/Shift, sorts by column header, opens the About modal,
-  zooms, switches themes, opens and closes tabs, and creates, renames,
-  deletes and copy-pastes files through the dialogs and shortcuts.
+  zooms, switches themes, opens and closes tabs, creates, renames, deletes
+  and cut/copy-pastes files through the dialogs and shortcuts, drags rows
+  onto folders, tabs, breadcrumbs and the navigation tree, and simulates a
+  drop arriving from another program.
+  `davesplorer_e2e_tests <name-filter> -v` runs one test with a debug log.
+
+The unit tests exercise the real Windows clipboard and put any text that
+was on it back afterwards.
 
 Both are registered with CTest; `build.cmd release test` runs them.

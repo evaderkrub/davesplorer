@@ -12,9 +12,10 @@
 namespace app
 {
 
-// Cut/copy live in the application, not the OS clipboard: the OS clipboard
-// carries CF_HDROP which needs COM and a window, and a private clipboard is
-// enough to move files around inside this explorer.
+// Cut/copy go to the Windows clipboard so they interoperate with Explorer.
+// This is a mirror of what THIS app last placed there, kept so cut items
+// can be drawn ghosted; it is dropped as soon as anything else writes the
+// clipboard.
 struct Clipboard
 {
     std::vector<std::string> paths;
@@ -37,7 +38,10 @@ struct AppState
     std::vector<platform::KnownFolder> quickAccess;
     std::vector<platform::DriveInfo>   drives;
 
-    Clipboard   clipboard;
+    Clipboard     clipboard;
+    unsigned long clipboardOwnedSeq = 0;   // clipboard sequence when `clipboard` was written
+    bool          clipboardHasFiles = false;
+
     std::string statusMessage;   // transient note for the status bar
     bool quitRequested = false;
 
@@ -56,8 +60,11 @@ void SaveAppState(AppState& state);
 int  OpenTab(AppState& state, const std::string& path);
 void CloseTab(AppState& state, int index);
 
-// Once per frame: reloads any tab that asked for it.
+// Once per frame: reloads any tab that asked for it, syncs clipboard facts.
 void TickAppState(AppState& state);
+
+// After a file operation whose reach is unknown: every tab re-reads.
+void RefreshAll(AppState& state);
 
 // Display name for a location: drive label for roots, folder name otherwise.
 std::string LocationTitle(const AppState& state, const std::string& path);

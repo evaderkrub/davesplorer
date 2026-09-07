@@ -1,4 +1,5 @@
 #include "ui/MainWindow.h"
+#include "ui/DragDrop.h"
 #include "ui/Fonts.h"
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Theme.h"
@@ -79,6 +80,9 @@ void DrawTabBar(app::AppState& state, UiState& ui)
             state.activeTab = i;
             ImGui::EndTabItem();
             }
+        // Dropping on a tab means "into that tab's folder"; the tab itself
+        // keeps drawing wherever it is.
+        if (!t.path.empty()) FileDropTarget(state, ui, t.path);
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !t.path.empty()) ImGui::SetTooltip("%s", t.path.c_str());
         if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) open = false;
         if (!open) closeIndex = i;
@@ -198,6 +202,7 @@ void DrawAddressBar(app::AppState& state, UiState& ui, float width)
             haveClick = true;
             }
         if (last) ImGui::PopStyleColor();
+        if (!crumbs[i].path.empty()) FileDropTarget(state, ui, crumbs[i].path);
         ImGui::SameLine();
         }
     ImGui::PopStyleColor(2);
@@ -276,8 +281,9 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui)
         if (!sel.empty() && !platform::ShowInExplorer(tab.entries[(size_t)sel[0]].path, error)) ShowError(ui, error);
         }
     ImGui::Separator();
-    if (ImGui::MenuItem("Cut", "Ctrl+X", false, haveSelection && inFolder)) app::CopySelection(state, tab, true);
-    if (ImGui::MenuItem("Copy", "Ctrl+C", false, haveSelection && inFolder)) app::CopySelection(state, tab, false);
+    std::string clipError;
+    if (ImGui::MenuItem("Cut", "Ctrl+X", false, haveSelection && inFolder) && !app::CopySelection(state, tab, true, clipError)) ShowError(ui, clipError);
+    if (ImGui::MenuItem("Copy", "Ctrl+C", false, haveSelection && inFolder) && !app::CopySelection(state, tab, false, clipError)) ShowError(ui, clipError);
     if (ImGui::MenuItem("Copy as path"))
         {
         std::string text;
@@ -374,8 +380,9 @@ void HandleListKeys(app::AppState& state, UiState& ui)
         RequestDialog(ui, Dialog::Delete);
         }
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_A, false)) app::SelectAll(tab);
-    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !tab.path.empty()) app::CopySelection(state, tab, false);
-    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_X, false) && !tab.path.empty()) app::CopySelection(state, tab, true);
+    std::string clipError;
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_C, false) && !tab.path.empty() && !app::CopySelection(state, tab, false, clipError)) ShowError(ui, clipError);
+    if (ctrl && ImGui::IsKeyPressed(ImGuiKey_X, false) && !tab.path.empty() && !app::CopySelection(state, tab, true, clipError)) ShowError(ui, clipError);
     if (ctrl && ImGui::IsKeyPressed(ImGuiKey_V, false) && app::CanPaste(state, tab))
         {
         std::string error;
@@ -474,14 +481,20 @@ void DrawFileTable(app::AppState& state, UiState& ui)
             const ImVec2 rowStart = ImGui::GetCursorScreenPos();
             const bool clicked = ImGui::Selectable(label.c_str(), isSelected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap);
+            const bool rowHoveredNow = ImGui::IsItemHovered();
+            if (!tab.path.empty()) FileDragSource(state, ui, tab, entryIndex);
+            if (e.isDirectory && FileDropTarget(state, ui, e.path)) ui.rowDropHovered = true;
+
+            // Cut items are ghosted until they are pasted, as in Explorer.
+            const bool isCut = state.clipboard.cut && std::find(state.clipboard.paths.begin(), state.clipboard.paths.end(), e.path) != state.clipboard.paths.end();
             const char* icon = IconForEntry(e);
             const float iconW = ImGui::CalcTextSize(icon).x;
             ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddText(rowStart, IconTintForEntry(e), icon);
+            dl->AddText(rowStart, isCut ? WithAlpha(IconTintForEntry(e), 110) : IconTintForEntry(e), icon);
             dl->AddText(ImVec2(rowStart.x + iconW + ImGui::GetStyle().ItemInnerSpacing.x, rowStart.y),
-                        e.isHidden ? CurrentPalette().textFaint : CurrentPalette().text, shownName.c_str());
+                        (e.isHidden || isCut) ? CurrentPalette().textFaint : CurrentPalette().text, shownName.c_str());
 
-            if (ImGui::IsItemHovered()) rowHovered = true;
+            if (rowHoveredNow) rowHovered = true;
             if (clicked)
                 {
                 pendingClick = pos;
@@ -509,6 +522,14 @@ void DrawFileTable(app::AppState& state, UiState& ui)
         }
     ImGui::PopStyleColor(3);
 
+    // The empty part of the list (and any non-folder row) drops into the
+    // folder being shown.
+    if (!tab.path.empty() && !ui.rowDropHovered)
+        {
+        ImGuiWindow* inner = ImGui::GetCurrentWindow();
+        FileDropTargetRect(state, ui, tab.path, inner->InnerRect, inner->GetID("##listdrop"));
+        }
+
     // Resolve clicks after the loop so selection changes cannot shift rows
     // mid-iteration.
     ImGuiIO& io = ImGui::GetIO();
@@ -533,7 +554,7 @@ void DrawFileTable(app::AppState& state, UiState& ui)
             app::ClickSelect(tab, pendingClick, io.KeyCtrl, io.KeyShift);
             }
         }
-    else if (ImGui::IsWindowHovered() && !rowHovered && !ImGui::IsAnyItemHovered())
+    else if (ImGui::IsWindowHovered() && !rowHovered && !ImGui::IsAnyItemHovered() && !ImGui::IsDragDropActive())
         {
         if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) app::ClearSelection(tab);
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) ImGui::OpenPopup("BackgroundContext");
@@ -607,6 +628,8 @@ void DrawFilesPane(app::AppState& state, UiState& ui)
         {
         ImGui::Spacing();
         MutedText("This folder is empty.");
+        ImGuiWindow* area = ImGui::GetCurrentWindow();
+        FileDropTargetRect(state, ui, tab.path, area->InnerRect, area->GetID("##emptydrop"));
         }
     else
         {
