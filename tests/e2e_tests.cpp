@@ -69,7 +69,19 @@ void ResetScratch(Fixture& fx)
     WriteFile(app::JoinPath(app::JoinPath(fx.root, "sub"), "inner.txt"), "inner");
 }
 
-// Every test starts from one tab in the scratch folder.
+// Each view is a window named "<folder>###view<id>"; the ID part is what
+// the tests address, so the title can change with navigation.
+ImGuiTestRef ActiveViewRef(Fixture& fx)
+{
+    return ImGuiTestRef(ui::ViewWindowId(fx.state.active().id));
+}
+
+void RefActiveView(ImGuiTestContext* ctx, Fixture& fx)
+{
+    ctx->SetRef(ActiveViewRef(fx));
+}
+
+// Every test starts from one view in the scratch folder.
 void GoToScratch(ImGuiTestContext* ctx, Fixture& fx)
 {
     ResetScratch(fx);
@@ -115,7 +127,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        IM_CHECK(ctx->WindowInfo(ui::kFilesWindow).Window != nullptr);
+        IM_CHECK(ctx->WindowInfo(ActiveViewRef(fx)).Window != nullptr);
         IM_CHECK(ctx->WindowInfo(ui::kNavWindow).Window != nullptr);
         IM_CHECK(ctx->WindowInfo(ui::kHostWindow).Window != nullptr);
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
@@ -127,16 +139,16 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###addressclick");
         ctx->Yield();
-        IM_CHECK(fx.ui.addressEditing);
+        IM_CHECK(fx.ui.view(fx.state.active().id).addressEditing);
         const std::string sub = app::JoinPath(fx.root, "sub");
         ctx->ItemInputValue("**/##address", sub.c_str());
         ctx->Yield(2);
         IM_CHECK_STR_EQ(fx.state.active().path.c_str(), sub.c_str());
         IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)1);
-        IM_CHECK(!fx.ui.addressEditing);
+        IM_CHECK(!fx.ui.view(fx.state.active().id).addressEditing);
 
         // A bad path shows the error modal and leaves the tab where it is.
         ctx->ItemClick("**/###addressclick");
@@ -154,7 +166,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemDoubleClick("**/###sub");
         ctx->Yield(2);
         IM_CHECK_STR_EQ(fx.state.active().path.c_str(), app::JoinPath(fx.root, "sub").c_str());
@@ -194,7 +206,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemInputValue("**/##search", "ALP");
         ctx->Yield();
         const app::Tab& tab = fx.state.active();
@@ -209,7 +221,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###alpha.txt");
         IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 1);
         ctx->KeyDown(ImGuiMod_Ctrl);
@@ -237,7 +249,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/Size");
         ctx->Yield();
         IM_CHECK(fx.state.active().sort.column == app::SortColumn::Size);
@@ -311,26 +323,82 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(ImGui::GetStyle().Colors[ImGuiCol_WindowBg].x < 0.2f);
     };
 
-    t = IM_REGISTER_TEST(e, "explorer", "tabs_open_close");
+    t = IM_REGISTER_TEST(e, "explorer", "views_open_close");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
+        const int firstId = fx.state.active().id;
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_T);
-        ctx->Yield(2);
+        ctx->Yield(3);
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        // The new view is focused, so it is the active one, and it joined
+        // the first view's dock node as a tab.
         IM_CHECK_EQ(fx.state.activeTab, 1);
-        ctx->SetRef(ui::kFilesWindow);
+        IM_CHECK(fx.ui.view(fx.state.active().id).dockId != 0);
+        IM_CHECK_EQ(fx.ui.view(fx.state.active().id).dockId, fx.ui.view(firstId).dockId);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###NewTab");
-        ctx->Yield(2);
+        ctx->Yield(3);
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+        // Ctrl+Tab cycles focus, wrapping around to the first view.
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_Tab);
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.active().id, firstId);
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
-        ctx->Yield(2);
+        ctx->Yield(3);
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
         ctx->SetRef(ui::kHostWindow);
-        ctx->MenuClick("File/Close tab");
-        ctx->Yield(2);
+        ctx->MenuClick("File/Close view");
+        ctx->Yield(3);
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
         IM_CHECK(!fx.state.quitRequested);
+    };
+
+    t = IM_REGISTER_TEST(e, "explorer", "split_view_side_by_side");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        const int leftId = fx.state.active().id;
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Split view right");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        const int rightId = fx.state.tabs[1].id;
+        IM_CHECK_STR_EQ(fx.state.tabs[1].path.c_str(), fx.root.c_str());
+        // Both views are docked, in different nodes, and both are visible
+        // at once: a real side-by-side layout, not two tabs.
+        const ImGuiID leftNode = fx.ui.view(leftId).dockId;
+        const ImGuiID rightNode = fx.ui.view(rightId).dockId;
+        IM_CHECK(leftNode != 0 && rightNode != 0);
+        IM_CHECK(leftNode != rightNode);
+        ImGuiWindow* leftWin = ctx->WindowInfo(ImGuiTestRef(ui::ViewWindowId(leftId))).Window;
+        ImGuiWindow* rightWin = ctx->WindowInfo(ImGuiTestRef(ui::ViewWindowId(rightId))).Window;
+        IM_CHECK(leftWin != nullptr && rightWin != nullptr);
+        IM_CHECK(leftWin->Active && rightWin->Active);
+        IM_CHECK(rightWin->Pos.x > leftWin->Pos.x);
+
+        // Drag a file from the left view onto a folder row in the right view.
+        ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(leftId)));
+        const ImGuiID src = ctx->ItemInfo("**/###alpha.txt").ID;
+        IM_CHECK(src != 0);
+        ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(rightId)));
+        ctx->ItemDragAndDrop(ImGuiTestRef(src), "**/###sub");
+        ctx->Yield(3);
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+        // Both views re-read the folder.
+        IM_CHECK_EQ(fx.state.tabs[0].entries.size(), (size_t)3);
+        IM_CHECK_EQ(fx.state.tabs[1].entries.size(), (size_t)3);
+
+        // Split down from the right view: three views, three nodes.
+        fx.ui.view(rightId).wantFocus = true;
+        ctx->Yield(2);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_DownArrow);
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)3);
+        const ImGuiID thirdNode = fx.ui.view(fx.state.tabs[2].id).dockId;
+        IM_CHECK(thirdNode != 0 && thirdNode != leftNode && thirdNode != rightNode);
     };
 
     t = IM_REGISTER_TEST(e, "explorer", "new_folder_dialog");
@@ -366,7 +434,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###alpha.txt");
         ctx->KeyPress(ImGuiKey_F2);
         ctx->Yield(2);
@@ -383,7 +451,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###beta.md");
         ctx->KeyPress(ImGuiMod_Shift | ImGuiKey_Delete);
         ctx->Yield(2);
@@ -401,7 +469,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###alpha.txt");
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_C);
         IM_CHECK_EQ(fx.state.clipboard.paths.size(), (size_t)1);
@@ -417,7 +485,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###beta.md");
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_X);
         ctx->Yield();
@@ -437,7 +505,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         // Step by step, so a failure says which stage broke.
         ctx->MouseMove("**/###alpha.txt");
         ctx->MouseDown(0);
@@ -462,7 +530,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         // Two selected rows dragged together: both are copied.
         ctx->ItemClick("**/###alpha.txt");
         ctx->KeyDown(ImGuiMod_Ctrl);
@@ -477,31 +545,21 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "gamma.png")));
     };
 
-    t = IM_REGISTER_TEST(e, "explorer", "drag_onto_tab_and_breadcrumb");
+    t = IM_REGISTER_TEST(e, "explorer", "drag_onto_breadcrumb");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
         const std::string sub = app::JoinPath(fx.root, "sub");
-        app::OpenTab(fx.state, sub);
-        const int subTabId = fx.state.active().id;
-        ctx->Yield(2);   // let the tab bar auto-select the new tab first
-        fx.ui.selectTabId = fx.state.tabs[0].id;
-        ctx->Yield(3);
-        IM_CHECK_EQ(fx.state.activeTab, 0);
-        ctx->SetRef(ui::kFilesWindow);
-        // Onto the other tab: into that tab's folder.
-        ctx->ItemDragAndDrop("**/###alpha.txt", ("**/###tab" + std::to_string(subTabId)).c_str());
-        ctx->Yield(3);
-        IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
-        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
-        // From inside sub, onto the parent's breadcrumb: back up it goes.
-        fx.ui.selectTabId = subTabId;
-        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###sub");
+        ctx->Yield(2);
+        IM_CHECK_STR_EQ(fx.state.active().path.c_str(), sub.c_str());
+        // From inside sub, onto the parent's breadcrumb: up it goes.
         const size_t n = app::Breadcrumbs(sub).size();
-        ctx->ItemDragAndDrop("**/###alpha.txt", ("**/###crumb" + std::to_string(n - 2)).c_str());
+        ctx->ItemDragAndDrop("**/###inner.txt", ("**/###crumb" + std::to_string(n - 2)).c_str());
         ctx->Yield(3);
-        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
-        IM_CHECK(!platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK(platform::PathExists(app::JoinPath(fx.root, "inner.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(sub, "inner.txt")));
     };
 
     t = IM_REGISTER_TEST(e, "explorer", "drag_onto_nav_pane_folder");
@@ -521,7 +579,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->Yield(3);
         app::NavigateTo(fx.state.active(), fx.root, error);
         ctx->Yield(3);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemDragAndDrop("**/###gamma.png", "//Navigation/**/###sub");
         ctx->Yield(3);
         IM_CHECK(platform::PathExists(app::JoinPath(sub, "gamma.png")));
@@ -536,7 +594,7 @@ void RegisterTests(ImGuiTestEngine* e)
         // hovering the "sub" row, then released.
         const std::string outside = app::JoinPath(fx.exeDir, "dropped.txt");
         WriteFile(outside, "from elsewhere");
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         fx.ui.externalDrop = ui::UiState::ExternalDrop{};
         fx.ui.externalDrop.active = true;
         fx.ui.externalDrop.paths.push_back(outside);
@@ -585,7 +643,7 @@ void RegisterTests(ImGuiTestEngine* e)
         const std::string hidden = app::JoinPath(fx.root, "secret.txt");
         WriteFile(hidden, "shh");
         SetFileAttributesW(platform::Utf8ToWide(hidden).c_str(), FILE_ATTRIBUTE_HIDDEN);
-        ctx->SetRef(ui::kFilesWindow);
+        RefActiveView(ctx, fx);
         ctx->ItemClick("**/###Refresh");
         ctx->Yield(2);
         IM_CHECK_EQ(fx.state.active().visible.size(), (size_t)4);

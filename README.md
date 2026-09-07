@@ -7,9 +7,9 @@ be copied to another Windows machine and run; nothing needs installing.
 ## What it does
 
 - **Browse** drives and folders with a Windows Explorer layout: navigation
-  pane on the left (Quick access, This PC, expandable drive tree), tabbed file
-  list on the right, status bar underneath. The panes dock and can be
-  rearranged; **View > Reset layout** restores the default.
+  pane on the left (Quick access, This PC, expandable drive tree), one or
+  more folder views on the right, status bar underneath each. Everything
+  docks and can be rearranged; **View > Reset layout** restores the default.
 - **Address bar** with clickable breadcrumbs. Click the empty part (or
   `Ctrl+L`) to type a path. Deep paths collapse into a `...` menu.
 - **Search** box filters the current folder as you type (`Ctrl+F`).
@@ -21,8 +21,14 @@ be copied to another Windows machine and run; nothing needs installing.
   their associated program.
 - **History**: Back/Forward/Up buttons, `Alt+Left`/`Alt+Right`/`Alt+Up`,
   `Backspace` for back, `F5` to refresh.
-- **Tabs**: `Ctrl+T` new, `Ctrl+W` close, `Ctrl+Tab` cycle, middle-click to
-  close, `+` button on the tab bar. Closing the last tab exits.
+- **Views**: every open location is its own dockable window, titled after
+  its folder. New views (`Ctrl+T`, the `+` toolbar button, "Open in new
+  view") appear as tabs beside the active view; drag a tab out to dock it
+  beside, above or below another, or float it. **View > Split view right /
+  down** (`Ctrl+Shift+Right` / `Ctrl+Shift+Down`, or the toolbar buttons)
+  opens a second view of the current folder next to it in one step, for a
+  dual-pane layout. `Ctrl+Tab` cycles views, `Ctrl+W` closes the active one,
+  and closing the last view exits. The layout is remembered.
 - **File operations**: New folder (`Ctrl+Shift+N`), new text file, Rename
   (`F2`), Delete to Recycle Bin (`Del`), Delete permanently (`Shift+Del`),
   Copy as path. Copy and move go through the Windows shell, so its progress
@@ -32,7 +38,7 @@ be copied to another Windows machine and run; nothing needs installing.
   paste here and files copied here paste in Explorer. Cut items show ghosted
   until pasted; a cut+paste moves and then empties the clipboard.
 - **Drag and drop**: drag selected items onto a folder row, the empty part
-  of the list, a folder in the navigation pane, another tab, or a breadcrumb.
+  of the list, a folder in the navigation pane, another view, or a breadcrumb.
   Same drive moves, another drive copies; `Ctrl` forces copy, `Shift` forces
   move, and the drag tooltip says which. A drag parked over a tab or a closed
   tree node opens it. Files dragged in from Explorer or any other program
@@ -99,10 +105,11 @@ Project code compiles with `/W4 /WX /permissive-`.
   ImGui Test Engine: it types into the address bar, double-clicks folders,
   uses Back/Forward/Up and the breadcrumbs, filters with the search box,
   selects with Ctrl/Shift, sorts by column header, opens the About modal,
-  zooms, switches themes, opens and closes tabs, creates, renames, deletes
-  and cut/copy-pastes files through the dialogs and shortcuts, drags rows
-  onto folders, tabs, breadcrumbs and the navigation tree, and simulates a
-  drop arriving from another program.
+  zooms, switches themes, opens, cycles and closes views, splits a view and
+  drags a file from one side to the other, creates, renames, deletes and
+  cut/copy-pastes files through the dialogs and shortcuts, drags rows onto
+  folders, breadcrumbs and the navigation tree, and simulates a drop
+  arriving from another program.
   `davesplorer_e2e_tests <name-filter> -v` runs one test with a debug log.
 
 The unit tests exercise the real Windows clipboard and put any text that

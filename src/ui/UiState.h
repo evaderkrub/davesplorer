@@ -3,6 +3,8 @@
 // app is unchanged.
 #pragma once
 
+#include "imgui.h"
+
 #include <cstdint>
 #include <string>
 #include <unordered_map>
@@ -22,14 +24,37 @@ enum class Dialog
     Error,
 };
 
-struct UiState
+// Per-view interface state, keyed by the tab's id. Every open location is
+// its own dockable window, so each needs its own address bar mode, scroll
+// requests and docking wishes.
+struct ViewUi
 {
-    // Address bar
     bool        addressEditing = false;
     bool        addressWantFocus = false;
     std::string addressText;
+    bool        searchWantFocus = false;
 
-    bool searchWantFocus = false;
+    uint64_t seenGeneration = 0;   // last listing the table scrolled to top for
+    int      scrollToEntry = -1;   // keyboard focus moved off-screen
+
+    bool    shown = false;         // Begin() has run at least once
+    bool    wantFocus = false;     // bring the window (and its dock tab) to front
+    ImGuiID dockId = 0;            // where the window sat last frame, 0 when floating
+    ImGuiID dockHint = 0;          // dock here on the next Begin (a split just made the node)
+};
+
+struct UiState
+{
+    std::unordered_map<int, ViewUi> views;
+    ViewUi& view(int tabId) { return views[tabId]; }
+
+    // View > Split: open a new view beside the given one.
+    struct SplitRequest
+        {
+        int      tabId = -1;
+        ImGuiDir dir = ImGuiDir_Right;
+        } splitRequest;
+    ImGuiID defaultViewDock = 0;   // the dockspace's central node, where new views land
 
     // Dialogs. `requested` is consumed by the dialog drawer, which lives in
     // the host window so OpenPopup and BeginPopupModal share an ID stack.
@@ -43,12 +68,6 @@ struct UiState
 
     // Navigation tree: subfolders per path, filled on first expand.
     std::unordered_map<std::string, std::vector<std::string>> treeChildren;
-
-    // File list housekeeping
-    uint64_t seenGeneration = 0;   // last listing the table scrolled to top for
-    int      scrollToEntry = -1;   // keyboard focus moved off-screen
-    int      selectTabId = -1;     // programmatic tab switch (Ctrl+Tab)
-    bool     filesWantFocus = false;
 
     // Drag and drop inside the app: the paths being dragged and the folder
     // under the cursor (last frame's answer, used by the drag tooltip).
@@ -73,7 +92,6 @@ struct UiState
     bool  resetLayoutRequested = false;
     bool  showMetrics = false;
     bool  showDemo = false;
-    bool  showTestEngine = false;
 };
 
 } // namespace ui

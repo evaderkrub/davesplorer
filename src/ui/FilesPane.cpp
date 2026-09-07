@@ -1,3 +1,5 @@
+// A view: one open location as a dockable window with toolbar, address bar,
+// search, file table and status bar.
 #include "ui/MainWindow.h"
 #include "ui/DragDrop.h"
 #include "ui/Fonts.h"
@@ -24,27 +26,32 @@
 namespace ui
 {
 
+std::string ViewWindowName(const app::AppState& state, const app::Tab& tab)
+{
+    return app::LocationTitle(state, tab.path) + "###view" + std::to_string(tab.id);
+}
+
 namespace
 {
 
-void Navigate(app::AppState& state, UiState& ui, const std::string& path)
+void Navigate(UiState& ui, app::Tab& tab, const std::string& path)
 {
     std::string error;
-    if (!app::NavigateTo(state.active(), path, error)) ShowError(ui, error);
+    if (!app::NavigateTo(tab, path, error)) ShowError(ui, error);
 }
 
-void OpenSelectedOrFocused(app::AppState& state, UiState& ui)
+// Enter or double-click on the selection. Takes the tab by index because
+// opening a view reallocates state.tabs.
+void OpenSelectedOrFocused(app::AppState& state, UiState& ui, int tabIndex)
 {
-    // Copy what we need first: opening a tab reallocates state.tabs and
-    // would leave a reference into the old vector dangling.
     std::vector<int> targets;
     std::vector<std::string> extraFolders;
     {
-    const app::Tab& tab = state.active();
+    const app::Tab& tab = state.tabs[(size_t)tabIndex];
     targets = app::SelectedIndices(tab);
     if (targets.empty() && tab.focused >= 0) targets.push_back(tab.focused);
     // Enter on several folders: the first opens here, the others each get
-    // a tab, the way Explorer would give each its own window.
+    // a view, the way Explorer would give each its own window.
     bool firstFolder = true;
     std::vector<int> kept;
     for (int i : targets)
@@ -58,73 +65,40 @@ void OpenSelectedOrFocused(app::AppState& state, UiState& ui)
     }
     std::string error;
     for (int i : targets)
-        if (!app::OpenEntry(state, state.active(), i, error)) ShowError(ui, error);
-    for (const std::string& folder : extraFolders) app::OpenTab(state, folder);
+        if (!app::OpenEntry(state, state.tabs[(size_t)tabIndex], i, error)) ShowError(ui, error);
+    for (const std::string& folder : extraFolders) OpenView(state, ui, folder);
 }
 
-void DrawTabBar(app::AppState& state, UiState& ui)
+void DrawAddressBar(app::AppState& state, UiState& ui, app::Tab& tab, ViewUi& v, float width)
 {
-    const ImGuiTabBarFlags flags = ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_FittingPolicyScroll |
-                                   ImGuiTabBarFlags_NoTooltip;
-    if (!ImGui::BeginTabBar("Tabs", flags)) return;
-    int closeIndex = -1;
-    for (int i = 0; i < (int)state.tabs.size(); ++i)
-        {
-        app::Tab& t = state.tabs[(size_t)i];
-        const std::string label = app::LocationTitle(state, t.path) + "###tab" + std::to_string(t.id);
-        bool open = true;
-        ImGuiTabItemFlags itemFlags = 0;
-        if (ui.selectTabId == t.id) itemFlags |= ImGuiTabItemFlags_SetSelected;
-        if (ImGui::BeginTabItem(label.c_str(), &open, itemFlags))
-            {
-            state.activeTab = i;
-            ImGui::EndTabItem();
-            }
-        // Dropping on a tab means "into that tab's folder"; the tab itself
-        // keeps drawing wherever it is.
-        if (!t.path.empty()) FileDropTarget(state, ui, t.path);
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !t.path.empty()) ImGui::SetTooltip("%s", t.path.c_str());
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Middle)) open = false;
-        if (!open) closeIndex = i;
-        }
-    ui.selectTabId = -1;
-    if (ImGui::TabItemButton(ICON_MD_ADD "###NewTab", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
-        app::OpenTab(state, state.active().path);
-    ImGui::EndTabBar();
-    if (closeIndex >= 0) app::CloseTab(state, closeIndex);
-}
-
-void DrawAddressBar(app::AppState& state, UiState& ui, float width)
-{
-    app::Tab& tab = state.active();
     const ImGuiStyle& style = ImGui::GetStyle();
     const float height = ImGui::GetFrameHeight();
 
-    if (ui.addressEditing)
+    if (v.addressEditing)
         {
         ImGui::SetNextItemWidth(width);
-        if (ui.addressWantFocus)
+        if (v.addressWantFocus)
             {
             ImGui::SetKeyboardFocusHere();
-            ui.addressWantFocus = false;
+            v.addressWantFocus = false;
             }
-        const bool entered = ImGui::InputText("##address", &ui.addressText,
+        const bool entered = ImGui::InputText("##address", &v.addressText,
                                               ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
         const bool active = ImGui::IsItemActive();
         if (entered)
             {
-            ui.addressEditing = false;
+            v.addressEditing = false;
             std::string error;
-            if (!app::NavigateTo(tab, ui.addressText, error)) ShowError(ui, error);
+            if (!app::NavigateTo(tab, v.addressText, error)) ShowError(ui, error);
             }
         else if (ImGui::IsKeyPressed(ImGuiKey_Escape) || (!active && !ImGui::IsItemActivated() && ImGui::IsItemDeactivated()))
             {
-            ui.addressEditing = false;
+            v.addressEditing = false;
             }
         else if (!active && !ImGui::IsItemFocused() && !ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
             {
             // Clicked somewhere else: leave edit mode, keep the old path.
-            ui.addressEditing = false;
+            v.addressEditing = false;
             }
         return;
         }
@@ -212,18 +186,20 @@ void DrawAddressBar(app::AppState& state, UiState& ui, float width)
     const float remaining = std::max(ImGui::GetContentRegionAvail().x, editArea * 0.5f);
     if (ImGui::InvisibleButton("###addressclick", ImVec2(remaining, height)))
         {
-        ui.addressEditing = true;
-        ui.addressWantFocus = true;
-        ui.addressText = tab.path;
+        v.addressEditing = true;
+        v.addressWantFocus = true;
+        v.addressText = tab.path;
         }
     if (ImGui::IsItemHovered()) ImGui::SetMouseCursor(ImGuiMouseCursor_TextInput);
     ImGui::EndChild();
-    if (haveClick) Navigate(state, ui, clicked);
+    if (haveClick) Navigate(ui, tab, clicked);
 }
 
-void DrawToolbar(app::AppState& state, UiState& ui)
+// Returns false when the toolbar opened a view (state.tabs moved).
+bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
 {
-    app::Tab& tab = state.active();
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
+    ViewUi& v = ui.view(tab.id);
     if (IconButton("Back", ICON_MD_ARROW_BACK, "Back (Alt+Left)", app::CanGoBack(tab))) app::GoBack(tab);
     ImGui::SameLine();
     if (IconButton("Forward", ICON_MD_ARROW_FORWARD, "Forward (Alt+Right)", app::CanGoForward(tab))) app::GoForward(tab);
@@ -237,16 +213,23 @@ void DrawToolbar(app::AppState& state, UiState& ui)
         }
     ImGui::SameLine();
 
-    const float searchWidth = std::clamp(ImGui::GetContentRegionAvail().x * 0.25f, 120.0f, 320.0f);
-    const float addressWidth = ImGui::GetContentRegionAvail().x - searchWidth - ImGui::GetStyle().ItemSpacing.x;
-    DrawAddressBar(state, ui, std::max(addressWidth, 80.0f));
+    // Right-hand cluster: new view, split right, split down. Measured from
+    // the real icon widths so a narrow view does not push them off the edge.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    auto buttonW = [&](const char* icon) { return ImGui::CalcTextSize(icon).x + style.FramePadding.x * 2.0f; };
+    const float cluster = buttonW(ICON_MD_ADD) + buttonW(ICON_MD_VERTICAL_SPLIT) + buttonW(ICON_MD_HORIZONTAL_SPLIT) +
+                          style.ItemSpacing.x * 3.0f;
+    const float avail = ImGui::GetContentRegionAvail().x - cluster - style.ItemSpacing.x;
+    const float searchWidth = std::clamp(avail * 0.25f, 90.0f, 320.0f);
+    const float addressWidth = std::max(avail - searchWidth, 60.0f);
+    DrawAddressBar(state, ui, tab, v, addressWidth);
     ImGui::SameLine();
 
     ImGui::SetNextItemWidth(searchWidth);
-    if (ui.searchWantFocus)
+    if (v.searchWantFocus)
         {
         ImGui::SetKeyboardFocusHere();
-        ui.searchWantFocus = false;
+        v.searchWantFocus = false;
         }
     const std::string hint = std::string(ICON_MD_SEARCH) + " Search " + app::LocationTitle(state, tab.path);
     if (ImGui::InputTextWithHint("##search", hint.c_str(), &tab.filter)) app::ApplyView(tab, state.settings);
@@ -255,23 +238,37 @@ void DrawToolbar(app::AppState& state, UiState& ui)
         tab.filter.clear();
         app::ApplyView(tab, state.settings);
         }
+    ImGui::SameLine();
+
+    const std::string path = tab.path;
+    const int id = tab.id;
+    if (IconButton("NewTab", ICON_MD_ADD, "Open this folder in a new view (Ctrl+T)"))
+        {
+        OpenView(state, ui, path);
+        return false;
+        }
+    ImGui::SameLine();
+    if (IconButton("SplitRight", ICON_MD_VERTICAL_SPLIT, "Split: new view to the right")) RequestSplitView(ui, id, ImGuiDir_Right);
+    ImGui::SameLine();
+    if (IconButton("SplitDown", ICON_MD_HORIZONTAL_SPLIT, "Split: new view below")) RequestSplitView(ui, id, ImGuiDir_Down);
+    return true;
 }
 
-void DrawRowContextMenu(app::AppState& state, UiState& ui)
+void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
 {
-    app::Tab& tab = state.active();
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
     const bool inFolder = !tab.path.empty();
     const bool haveSelection = app::SelectedCount(tab) > 0;
     const bool focusedIsFolder = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isDirectory;
     const std::string focusedPath = tab.focused >= 0 ? tab.entries[(size_t)tab.focused].path : std::string();
     if (ImGui::MenuItem("Open"))
         {
-        OpenSelectedOrFocused(state, ui);
-        return;   // tabs may have changed; `tab` is not to be trusted past here
+        OpenSelectedOrFocused(state, ui, tabIndex);
+        return;   // views may have changed; `tab` is not to be trusted past here
         }
-    if (ImGui::MenuItem("Open in new tab", nullptr, false, focusedIsFolder))
+    if (ImGui::MenuItem("Open in new view", nullptr, false, focusedIsFolder))
         {
-        app::OpenTab(state, focusedPath);
+        OpenView(state, ui, focusedPath);
         return;
         }
     if (ImGui::MenuItem("Show in Windows Explorer"))
@@ -306,9 +303,8 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui)
         }
 }
 
-void DrawBackgroundContextMenu(app::AppState& state, UiState& ui)
+void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
 {
-    app::Tab& tab = state.active();
     const bool inFolder = !tab.path.empty();
     if (ImGui::MenuItem("New folder", "Ctrl+Shift+N", false, inFolder))
         {
@@ -336,15 +332,16 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui)
         }
 }
 
-// Keys that act on the list. Only while the Files window (or a child of it)
-// has focus, nobody is typing, and no popup is up.
-void HandleListKeys(app::AppState& state, UiState& ui)
+// Keys that act on the list. Only while this view (or a child of it) has
+// focus, nobody is typing, and no popup is up.
+void HandleListKeys(app::AppState& state, UiState& ui, int tabIndex)
 {
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;
     if (!ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) return;
     if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) return;
-    app::Tab& tab = state.active();
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
+    ViewUi& v = ui.view(tab.id);
     const bool shift = io.KeyShift, ctrl = io.KeyCtrl;
     const int before = tab.focused;
 
@@ -354,14 +351,14 @@ void HandleListKeys(app::AppState& state, UiState& ui)
     if (ImGui::IsKeyPressed(ImGuiKey_PageUp))     app::MoveFocus(tab, -15, false, shift, ctrl);
     if (ImGui::IsKeyPressed(ImGuiKey_Home))       app::MoveFocus(tab, -1, true, shift, ctrl);
     if (ImGui::IsKeyPressed(ImGuiKey_End))        app::MoveFocus(tab, 1, true, shift, ctrl);
-    if (tab.focused != before) ui.scrollToEntry = tab.focused;
+    if (tab.focused != before) v.scrollToEntry = tab.focused;
 
     if (ImGui::IsKeyPressed(ImGuiKey_Space) && ctrl && tab.focused >= 0)
         tab.selected[(size_t)tab.focused] = tab.selected[(size_t)tab.focused] ? 0 : 1;
     if (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))
         {
-        OpenSelectedOrFocused(state, ui);
-        return;   // may have opened tabs and moved state.tabs
+        OpenSelectedOrFocused(state, ui, tabIndex);
+        return;   // may have opened views and moved state.tabs
         }
     if (ImGui::IsKeyPressed(ImGuiKey_Backspace)) app::GoBack(tab);
     if (ImGui::IsKeyPressed(ImGuiKey_F2) && app::SelectedCount(tab) == 1 && !tab.path.empty())
@@ -390,28 +387,29 @@ void HandleListKeys(app::AppState& state, UiState& ui)
         }
 }
 
-void DrawFileTable(app::AppState& state, UiState& ui)
+void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
 {
-    app::Tab& tab = state.active();
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
+    ViewUi& v = ui.view(tab.id);
     const app::Settings& settings = state.settings;
     const float scale = ImGui::GetStyle().FontScaleMain * ImGui::GetStyle().FontScaleDpi;
 
+    // Fixed column widths with horizontal scrolling, as Explorer does: a
+    // narrow view scrolls sideways instead of crushing the Name column.
     const ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable |
                                   ImGuiTableFlags_Sortable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
-                                  ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingFixedFit;
+                                  ImGuiTableFlags_ScrollX | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingFixedFit;
     if (!ImGui::BeginTable("FileTable", 4, flags)) return;
 
     ImGui::TableSetupScrollFreeze(0, 1);
-    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_NoHide |
-                                    ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortAscending, 1.0f, 0);
+    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide |
+                                    ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortAscending, 300.0f * scale, 0);
     ImGui::TableSetupColumn("Date modified", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 150.0f * scale, 1);
     ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 130.0f * scale, 2);
     ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 90.0f * scale, 3);
     ImGui::TableHeadersRow();
 
     // The table's sort state is the source of truth; the tab follows it.
-    // Comparing every frame also covers a tab switch, where the table keeps
-    // its spec and the new tab must adopt it.
     if (ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
         {
         if (specs->SpecsCount > 0)
@@ -428,9 +426,9 @@ void DrawFileTable(app::AppState& state, UiState& ui)
         specs->SpecsDirty = false;
         }
 
-    if (ui.seenGeneration != tab.listingGeneration)
+    if (v.seenGeneration != tab.listingGeneration)
         {
-        ui.seenGeneration = tab.listingGeneration;
+        v.seenGeneration = tab.listingGeneration;
         ImGui::SetScrollY(0.0f);
         }
 
@@ -447,9 +445,9 @@ void DrawFileTable(app::AppState& state, UiState& ui)
 
     ImGuiListClipper clipper;
     clipper.Begin((int)tab.visible.size());
-    if (ui.scrollToEntry >= 0)
+    if (v.scrollToEntry >= 0)
         {
-        const int pos = app::VisiblePosOf(tab, ui.scrollToEntry);
+        const int pos = app::VisiblePosOf(tab, v.scrollToEntry);
         if (pos >= 0) clipper.IncludeItemByIndex(pos);
         }
     while (clipper.Step())
@@ -467,10 +465,10 @@ void DrawFileTable(app::AppState& state, UiState& ui)
             if (!settings.showExtensions && !e.isDirectory && !e.extension.empty() && tab.path.size() > 0)
                 shownName = e.name.substr(0, e.name.size() - e.extension.size() - 1);
 
-            if (ui.scrollToEntry == entryIndex)
+            if (v.scrollToEntry == entryIndex)
                 {
                 ImGui::SetScrollHereY(0.5f);
-                ui.scrollToEntry = -1;
+                v.scrollToEntry = -1;
                 }
 
             // The selectable carries only the ID ("###name" shows nothing),
@@ -562,20 +560,19 @@ void DrawFileTable(app::AppState& state, UiState& ui)
 
     if (ImGui::BeginPopup("RowContext"))
         {
-        DrawRowContextMenu(state, ui);
+        DrawRowContextMenu(state, ui, tabIndex);
         ImGui::EndPopup();
         }
     if (ImGui::BeginPopup("BackgroundContext"))
         {
-        DrawBackgroundContextMenu(state, ui);
+        DrawBackgroundContextMenu(state, ui, state.tabs[(size_t)tabIndex]);
         ImGui::EndPopup();
         }
     ImGui::EndTable();
 }
 
-void DrawStatusBar(app::AppState& state)
+void DrawStatusBar(app::AppState& state, const app::Tab& tab)
 {
-    const app::Tab& tab = state.active();
     const int selected = app::SelectedCount(tab);
     std::string text = std::to_string(tab.visible.size()) + (tab.visible.size() == 1 ? " item" : " items");
     if (!tab.filter.empty()) text += " (of " + std::to_string(tab.entries.size()) + ")";
@@ -596,14 +593,11 @@ void DrawStatusBar(app::AppState& state)
         }
 }
 
-} // namespace
-
-void DrawFilesPane(app::AppState& state, UiState& ui)
+void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
 {
-    DrawTabBar(state, ui);
-    DrawToolbar(state, ui);
+    if (!DrawToolbar(state, ui, tabIndex)) return;
 
-    app::Tab& tab = state.active();
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
     const float statusHeight = state.settings.showStatusBar
                                    ? ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2
                                    : 0.0f;
@@ -612,11 +606,6 @@ void DrawFilesPane(app::AppState& state, UiState& ui)
     ImGui::PushStyleColor(ImGuiCol_ChildBg, CurrentPalette().surface);
     ImGui::BeginChild("##listarea", listSize, ImGuiChildFlags_None);
     ImGui::PopStyleColor();
-    if (ui.filesWantFocus)
-        {
-        ImGui::SetWindowFocus();
-        ui.filesWantFocus = false;
-        }
     if (!tab.error.empty())
         {
         ImGui::Spacing();
@@ -633,12 +622,54 @@ void DrawFilesPane(app::AppState& state, UiState& ui)
         }
     else
         {
-        DrawFileTable(state, ui);
+        DrawFileTable(state, ui, tabIndex);
         }
     ImGui::EndChild();
-    HandleListKeys(state, ui);
+    HandleListKeys(state, ui, tabIndex);
 
-    if (state.settings.showStatusBar) DrawStatusBar(state);
+    if (state.settings.showStatusBar) DrawStatusBar(state, state.tabs[(size_t)tabIndex]);
+}
+
+} // namespace
+
+bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
+{
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
+    ViewUi& v = ui.view(tab.id);
+
+    if (v.wantFocus)
+        {
+        ImGui::SetNextWindowFocus();
+        v.wantFocus = false;
+        }
+    if (v.dockHint != 0)
+        {
+        ImGui::SetNextWindowDockID(v.dockHint, ImGuiCond_Always);
+        v.dockHint = 0;
+        }
+    else if (!v.shown)
+        {
+        // A brand-new view joins the main area; one restored from the
+        // layout file keeps whatever place it had.
+        ImGui::SetNextWindowDockID(ui.defaultViewDock, ImGuiCond_FirstUseEver);
+        }
+    v.shown = true;
+
+    const std::string name = ViewWindowName(state, tab);
+    bool open = true;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
+    const bool visible = ImGui::Begin(name.c_str(), &open, ImGuiWindowFlags_NoCollapse);
+    ImGui::PopStyleVar();
+    if (visible)
+        {
+        v.dockId = ImGui::GetWindowDockID();
+        // The focused view is the one menus, shortcuts and the navigation
+        // pane act on.
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) state.activeTab = tabIndex;
+        DrawViewContents(state, ui, tabIndex);
+        }
+    ImGui::End();
+    return !open;
 }
 
 } // namespace ui

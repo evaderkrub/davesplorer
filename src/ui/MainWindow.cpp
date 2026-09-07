@@ -13,6 +13,8 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
+#include <vector>
+
 namespace ui
 {
 
@@ -39,19 +41,74 @@ void ZoomReset(app::AppState& state)
     state.settings.uiScale = 1.0f;
 }
 
+int OpenView(app::AppState& state, UiState& ui, const std::string& path, ImGuiID dockNode)
+{
+    // New views join the active view's node so they appear as a tab beside
+    // it, the way a new tab does in Explorer.
+    ImGuiID target = dockNode;
+    if (target == 0 && !state.tabs.empty()) target = ui.view(state.active().id).dockId;
+    if (target == 0) target = ui.defaultViewDock;
+
+    const int index = app::OpenTab(state, path);
+    ViewUi& v = ui.view(state.tabs[(size_t)index].id);
+    v.wantFocus = true;
+    v.dockHint = target;
+    return index;
+}
+
+void RequestSplitView(UiState& ui, int tabId, ImGuiDir dir)
+{
+    ui.splitRequest.tabId = tabId;
+    ui.splitRequest.dir = dir;
+}
+
 namespace
 {
 
-void BuildDefaultLayout(ImGuiID dockspaceId, ImVec2 size)
+// Navigation pane on the left, views in the (central) rest. The nav node
+// hides its tab bar; view nodes keep theirs, since a view's tab is what the
+// user grabs to dock it somewhere else.
+void BuildDefaultLayout(app::AppState& state, UiState& ui, ImGuiID dockspaceId, ImVec2 size)
 {
     ImGui::DockBuilderRemoveNode(dockspaceId);
     ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
     ImGui::DockBuilderSetNodeSize(dockspaceId, size);
     ImGuiID left = 0, right = 0;
     ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.22f, &left, &right);
+    if (ImGuiDockNode* nav = ImGui::DockBuilderGetNode(left))
+        nav->SetLocalFlags(nav->LocalFlags | ImGuiDockNodeFlags_HiddenTabBar);
     ImGui::DockBuilderDockWindow(kNavWindow, left);
-    ImGui::DockBuilderDockWindow(kFilesWindow, right);
+    for (const app::Tab& tab : state.tabs)
+        {
+        ImGui::DockBuilderDockWindow(ViewWindowName(state, tab).c_str(), right);
+        ui.view(tab.id).shown = true;   // docked here explicitly; no FirstUseEver hint needed
+        }
     ImGui::DockBuilderFinish(dockspaceId);
+    ui.defaultViewDock = right;
+}
+
+// Splits the dock node of one view and opens a new view in the new half.
+// DockBuilder calls belong before the DockSpace() of the frame, which is
+// why this is a request handled at the top of DrawFrame.
+void HandleSplitRequest(app::AppState& state, UiState& ui)
+{
+    const UiState::SplitRequest req = ui.splitRequest;
+    ui.splitRequest = UiState::SplitRequest{};
+    if (req.tabId < 0) return;
+    int index = -1;
+    for (int i = 0; i < (int)state.tabs.size(); ++i)
+        if (state.tabs[(size_t)i].id == req.tabId) index = i;
+    if (index < 0) return;
+    const std::string path = state.tabs[(size_t)index].path;
+    const ImGuiID node = ui.view(req.tabId).dockId;
+    if (node == 0 || ImGui::DockBuilderGetNode(node) == nullptr)
+        {
+        OpenView(state, ui, path);   // floating: no node to split, just open beside
+        return;
+        }
+    ImGuiID newNode = 0, rest = 0;
+    ImGui::DockBuilderSplitNode(node, req.dir, 0.5f, &newNode, &rest);
+    OpenView(state, ui, path, newNode);
 }
 
 void StartNewFolder(app::AppState& state, UiState& ui)
@@ -126,17 +183,18 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
 
     if (ImGui::BeginMenu("File"))
         {
-        // Opening or closing a tab moves state.tabs, so `tab` is stale after
-        // either; both leave the menu immediately.
-        if (ImGui::MenuItem("New tab", "Ctrl+T"))
+        // Opening or closing a view moves state.tabs, so `tab` is stale
+        // after either; both leave the menu immediately.
+        if (ImGui::MenuItem("New view", "Ctrl+T"))
             {
-            app::OpenTab(state, tab.path);
+            OpenView(state, ui, tab.path);
             ImGui::EndMenu();
             ImGui::EndMenuBar();
             return;
             }
-        if (ImGui::MenuItem("Close tab", "Ctrl+W"))
+        if (ImGui::MenuItem("Close view", "Ctrl+W"))
             {
+            ui.views.erase(tab.id);
             app::CloseTab(state, state.activeTab);
             ImGui::EndMenu();
             ImGui::EndMenuBar();
@@ -180,6 +238,9 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
 
     if (ImGui::BeginMenu("View"))
         {
+        if (ImGui::MenuItem("Split view right", "Ctrl+Shift+Right")) RequestSplitView(ui, tab.id, ImGuiDir_Right);
+        if (ImGui::MenuItem("Split view down", "Ctrl+Shift+Down")) RequestSplitView(ui, tab.id, ImGuiDir_Down);
+        ImGui::Separator();
         ImGui::MenuItem("Navigation pane", nullptr, &s.showNavPane);
         ImGui::MenuItem("Status bar", nullptr, &s.showStatusBar);
         ImGui::Separator();
@@ -265,11 +326,12 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
     // in the same frame.
     if (chord(ImGuiMod_Ctrl | ImGuiKey_T))
         {
-        app::OpenTab(state, tab.path);
+        OpenView(state, ui, tab.path);
         return;
         }
     if (chord(ImGuiMod_Ctrl | ImGuiKey_W))
         {
+        ui.views.erase(tab.id);
         app::CloseTab(state, state.activeTab);
         return;
         }
@@ -278,8 +340,10 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
         const int n = (int)state.tabs.size();
         const int dir = io.KeyShift ? -1 : 1;
         const int next = ((state.activeTab + dir) % n + n) % n;
-        ui.selectTabId = state.tabs[(size_t)next].id;
+        ui.view(state.tabs[(size_t)next].id).wantFocus = true;
         }
+    if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_RightArrow)) RequestSplitView(ui, tab.id, ImGuiDir_Right);
+    if (chord(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_DownArrow)) RequestSplitView(ui, tab.id, ImGuiDir_Down);
     if (chord(ImGuiMod_Alt | ImGuiKey_LeftArrow)) app::GoBack(tab);
     if (chord(ImGuiMod_Alt | ImGuiKey_RightArrow)) app::GoForward(tab);
     if (chord(ImGuiMod_Alt | ImGuiKey_UpArrow)) app::GoUp(tab);
@@ -290,11 +354,12 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
         }
     if (chord(ImGuiMod_Ctrl | ImGuiKey_L) || chord(ImGuiMod_Alt | ImGuiKey_D))
         {
-        ui.addressEditing = true;
-        ui.addressWantFocus = true;
-        ui.addressText = tab.path;
+        ViewUi& v = ui.view(tab.id);
+        v.addressEditing = true;
+        v.addressWantFocus = true;
+        v.addressText = tab.path;
         }
-    if (chord(ImGuiMod_Ctrl | ImGuiKey_F) || chord(ImGuiMod_Ctrl | ImGuiKey_E)) ui.searchWantFocus = true;
+    if (chord(ImGuiMod_Ctrl | ImGuiKey_F) || chord(ImGuiMod_Ctrl | ImGuiKey_E)) ui.view(tab.id).searchWantFocus = true;
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Equal) || chord(ImGuiMod_Ctrl | ImGuiKey_KeypadAdd)) ZoomBy(state, 0.1f);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_Minus) || chord(ImGuiMod_Ctrl | ImGuiKey_KeypadSubtract)) ZoomBy(state, -0.1f);
     if (chord(ImGuiMod_Ctrl | ImGuiKey_0) || chord(ImGuiMod_Ctrl | ImGuiKey_Keypad0)) ZoomReset(state);
@@ -328,9 +393,13 @@ void DrawFrame(app::AppState& state, UiState& ui)
     if (ui.resetLayoutRequested || ImGui::DockBuilderGetNode(dockspaceId) == nullptr)
         {
         ui.resetLayoutRequested = false;
-        BuildDefaultLayout(dockspaceId, viewport->WorkSize);
+        BuildDefaultLayout(state, ui, dockspaceId, viewport->WorkSize);
         }
-    ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_AutoHideTabBar);
+    HandleSplitRequest(state, ui);
+    ImGui::DockSpace(dockspaceId, ImVec2(0, 0), ImGuiDockNodeFlags_None);
+    // The central node is where views go by default; it moves around as
+    // the user splits, so look it up each frame.
+    if (ImGuiDockNode* central = ImGui::DockBuilderGetCentralNode(dockspaceId)) ui.defaultViewDock = central->ID;
     ImGui::End();
 
     if (state.settings.showNavPane)
@@ -341,10 +410,23 @@ void DrawFrame(app::AppState& state, UiState& ui)
         if (!open) state.settings.showNavPane = false;
         }
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 6));
-    if (ImGui::Begin(kFilesWindow, nullptr, ImGuiWindowFlags_NoCollapse)) DrawFilesPane(state, ui);
-    ImGui::End();
-    ImGui::PopStyleVar();
+    // One window per open location. A view may open another view (which
+    // appends to state.tabs) or ask to close; both are handled by index
+    // after the loop so iteration stays valid.
+    std::vector<int> closing;
+    const int viewCount = (int)state.tabs.size();
+    for (int i = 0; i < viewCount; ++i)
+        if (DrawView(state, ui, i)) closing.push_back(state.tabs[(size_t)i].id);
+    for (int id : closing)
+        {
+        ui.views.erase(id);
+        for (int i = 0; i < (int)state.tabs.size(); ++i)
+            if (state.tabs[(size_t)i].id == id)
+                {
+                app::CloseTab(state, i);
+                break;
+                }
+        }
 
     // Dialogs are opened and drawn in the host window so OpenPopup and
     // BeginPopupModal see the same ID stack, whichever pane asked.
