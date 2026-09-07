@@ -1,6 +1,6 @@
-// The shortcut bar under the menu: ten slots, empty until clicked. A click
-// on an empty slot pins the selected folder; from then on the slot jumps
-// the active view there. Right-click for Open / Assign / Clear.
+// The shortcut bar under the menu: ten slots, each showing a red "+" until
+// clicked. A click on an empty slot pins the selected folder; from then on
+// the slot jumps the active view there. Right-click for Open / Assign / Clear.
 #include "ui/MainWindow.h"
 #include "ui/DragDrop.h"
 #include "ui/IconsMaterialDesign.h"
@@ -101,15 +101,13 @@ void DrawShortcutBar(app::AppState& state, UiState& ui)
             ImDrawList* dl = ImGui::GetWindowDrawList();
             dl->AddRect(start, ImVec2(start.x + slotW, start.y + ImGui::GetFrameHeight()), WithAlpha(p.border, 120),
                         style.FrameRounding);
-            if (ImGui::IsItemHovered())
-                {
-                // The "+" is the pin-here invitation: same red as the pinned
-                // folder icon, so it reads on light and dark themes alike.
-                const ImVec2 plusSize = ImGui::CalcTextSize(ICON_MD_ADD);
-                dl->AddText(ImVec2(start.x + (slotW - plusSize.x) * 0.5f, start.y + (ImGui::GetFrameHeight() - plusSize.y) * 0.5f),
-                            kFolderRed, ICON_MD_ADD);
-                if (!candidate.empty()) TipOnHover(("Pin " + app::LocationTitle(state, candidate) + " here").c_str());
-                }
+            // The "+" is the pin-here invitation, always visible so an empty
+            // slot is discoverable, in the same red as the pinned folder icon.
+            const ImVec2 plusSize = ImGui::CalcTextSize(ICON_MD_ADD);
+            dl->AddText(ImVec2(start.x + (slotW - plusSize.x) * 0.5f, start.y + (ImGui::GetFrameHeight() - plusSize.y) * 0.5f),
+                        kFolderRed, ICON_MD_ADD);
+            if (ImGui::IsItemHovered() && !candidate.empty())
+                TipOnHover(("Pin " + app::LocationTitle(state, candidate) + " here").c_str());
             if (clicked && !candidate.empty()) app::AssignShortcut(state, slot, candidate);
             }
 
