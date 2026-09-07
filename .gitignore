@@ -1,0 +1,8 @@
+# Build output lives in C:/buildfiles/davesplorer (see CMakePresets.json).
+build/
+out/
+*.user
+.vs/
+.idea/
+imgui.ini
+settings.ini
