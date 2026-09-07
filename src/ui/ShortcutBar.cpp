@@ -93,8 +93,8 @@ void DrawShortcutBar(app::AppState& state, UiState& ui)
             {
             // An empty slot: a faint outline, a "+" only while hovered.
             ImGui::PushStyleColor(ImGuiCol_Button, WithAlpha(p.surfaceHovered, 40));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, WithAlpha(p.surfaceHovered, 120));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, WithAlpha(p.surfaceActive, 160));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, WithAlpha(p.surfaceHovered, 200));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, WithAlpha(p.surfaceActive, 255));
             const ImVec2 start = ImGui::GetCursorScreenPos();
             const bool clicked = ImGui::Button(id.c_str(), ImVec2(slotW, 0));
             ImGui::PopStyleColor(3);
@@ -103,9 +103,11 @@ void DrawShortcutBar(app::AppState& state, UiState& ui)
                         style.FrameRounding);
             if (ImGui::IsItemHovered())
                 {
+                // The "+" is the pin-here invitation: same red as the pinned
+                // folder icon, so it reads on light and dark themes alike.
                 const ImVec2 plusSize = ImGui::CalcTextSize(ICON_MD_ADD);
                 dl->AddText(ImVec2(start.x + (slotW - plusSize.x) * 0.5f, start.y + (ImGui::GetFrameHeight() - plusSize.y) * 0.5f),
-                            p.textFaint, ICON_MD_ADD);
+                            kFolderRed, ICON_MD_ADD);
                 if (!candidate.empty()) TipOnHover(("Pin " + app::LocationTitle(state, candidate) + " here").c_str());
                 }
             if (clicked && !candidate.empty()) app::AssignShortcut(state, slot, candidate);
