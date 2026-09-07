@@ -109,6 +109,13 @@ above all the argument-less launch that is the desktop shell itself, runs the
 real Explorer from a private copy, unchanged. Pass-through is the default, so
 an unrecognized launch never goes to Davesplorer and the shell can't be lost.
 
+The interceptor catches launches that name `explorer.exe` and so create a
+new process; the `-Default` verb catches "open this folder" requests that
+resolve the folder's handler instead. A program that was already running
+when you registered may have cached the old folder handler: `register.ps1`
+broadcasts an association-change notification to refresh them, but a few
+only re-read on restart.
+
 This is admin-level and system-wide (it writes HKLM), and it is the same
 registry mechanism some malware uses to hijack the shell, so Defender or an
 antivirus may flag it. `register.ps1 -Interceptor` re-elevates itself for the

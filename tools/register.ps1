@@ -53,6 +53,18 @@ $ErrorActionPreference = 'Stop'
 $ifeoKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\explorer.exe'
 $shimDir = Join-Path $env:LOCALAPPDATA 'Davesplorer'
 
+# Tell the running shell and any open app to drop their cached file
+# associations, so a new default handler takes effect without a restart.
+function Broadcast-AssocChanged {
+    try {
+        Add-Type -Namespace Dsp -Name Shell -MemberDefinition `
+            '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int e, uint f, System.IntPtr a, System.IntPtr b);' `
+            -ErrorAction SilentlyContinue
+    } catch {}
+    # SHCNE_ASSOCCHANGED, SHCNF_IDLIST
+    [Dsp.Shell]::SHChangeNotify(0x08000000, 0, [System.IntPtr]::Zero, [System.IntPtr]::Zero)
+}
+
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal $id).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
@@ -125,6 +137,7 @@ if ($Unregister) {
         # Leave the IFEO key only if something else populated it.
         if (-not (Get-Item $ifeoKey).Property) { Remove-Item -Path $ifeoKey -Force }
     }
+    Broadcast-AssocChanged
     Write-Host 'Davesplorer unregistered: context menu, default handler, Win+E and the interceptor are all back to Explorer.'
     Write-Host 'Restart Explorer (or sign out and in) to drop the interceptor from the running shell.'
     return
@@ -182,4 +195,9 @@ if ($Interceptor) {
     Write-Host "Manager, Run new task 'powershell', then: & '$PSCommandPath' -Unregister"
 }
 
+Broadcast-AssocChanged
+# A long-running program that resolved the folder handler before this runs
+# has it cached; the broadcast above refreshes most, but some only re-read
+# on restart.
+Write-Host 'Note: apps already running may need a restart to pick up the new folder handler.'
 Write-Host "Using $ExePath. Undo with: .\register.ps1 -Unregister"
