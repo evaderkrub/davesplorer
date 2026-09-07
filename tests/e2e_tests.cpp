@@ -417,6 +417,21 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(platform::IsDirectory(app::JoinPath(fx.root, "Created here")));
         IM_CHECK_EQ(fx.state.active().entries.size(), (size_t)5);
 
+        // The status bar's New folder button opens the same dialog.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###NewFolder");
+        ctx->Yield(2);
+        IM_CHECK(ImGui::GetTopMostPopupModal() != nullptr);
+        ctx->SetRef("//New folder");
+        ctx->ItemInputValue("##name", "From the bar");
+        ctx->Yield(3);
+        IM_CHECK(platform::IsDirectory(app::JoinPath(fx.root, "From the bar")));
+        // The terminal button is there and enabled in a real folder; it is
+        // not clicked, since that would open a console window.
+        RefActiveView(ctx, fx);
+        IM_CHECK(ctx->ItemExists("**/###Terminal"));
+        IM_CHECK((ctx->ItemInfo("**/###Terminal").ItemFlags & ImGuiItemFlags_Disabled) == 0);
+
         // An invalid name keeps the dialog open with a reason.
         ctx->SetRef(ui::kHostWindow);
         ctx->MenuClick("File/New folder");

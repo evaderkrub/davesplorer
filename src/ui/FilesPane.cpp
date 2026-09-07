@@ -571,7 +571,7 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
     ImGui::EndTable();
 }
 
-void DrawStatusBar(app::AppState& state, const app::Tab& tab)
+void DrawStatusBar(app::AppState& state, UiState& ui, app::Tab& tab)
 {
     const int selected = app::SelectedCount(tab);
     std::string text = std::to_string(tab.visible.size()) + (tab.visible.size() == 1 ? " item" : " items");
@@ -585,11 +585,31 @@ void DrawStatusBar(app::AppState& state, const app::Tab& tab)
     if (!state.clipboard.paths.empty())
         text += "    " + std::to_string(state.clipboard.paths.size()) + (state.clipboard.cut ? " cut" : " copied");
     ImGui::Separator();
+    ImGui::AlignTextToFramePadding();
     MutedText(text.c_str());
     if (!state.statusMessage.empty())
         {
         ImGui::SameLine();
         FaintText(state.statusMessage.c_str());
+        }
+
+    // Right end: new folder and a terminal here. Both need a real folder,
+    // so they are greyed out on This PC.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float buttonsW = ImGui::CalcTextSize(ICON_MD_CREATE_NEW_FOLDER).x + ImGui::CalcTextSize(ICON_MD_TERMINAL).x +
+                           style.FramePadding.x * 4.0f + style.ItemSpacing.x;
+    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - buttonsW));
+    const bool inFolder = !tab.path.empty();
+    if (IconButton("NewFolder", ICON_MD_CREATE_NEW_FOLDER, "New folder (Ctrl+Shift+N)", inFolder))
+        {
+        ui.dialogText = app::UniqueNewName(tab, "New folder");
+        RequestDialog(ui, Dialog::NewFolder);
+        }
+    ImGui::SameLine();
+    if (IconButton("Terminal", ICON_MD_TERMINAL, "Open terminal here", inFolder))
+        {
+        std::string error;
+        if (!platform::OpenTerminalAt(tab.path, error)) ShowError(ui, error);
         }
 }
 
@@ -598,8 +618,9 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
     if (!DrawToolbar(state, ui, tabIndex)) return;
 
     app::Tab& tab = state.tabs[(size_t)tabIndex];
+    // The status bar holds buttons now, so it is a frame tall, not a line.
     const float statusHeight = state.settings.showStatusBar
-                                   ? ImGui::GetTextLineHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2
+                                   ? ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.y * 2
                                    : 0.0f;
     const ImVec2 listSize(0, ImGui::GetContentRegionAvail().y - statusHeight);
 
@@ -627,7 +648,7 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
     ImGui::EndChild();
     HandleListKeys(state, ui, tabIndex);
 
-    if (state.settings.showStatusBar) DrawStatusBar(state, state.tabs[(size_t)tabIndex]);
+    if (state.settings.showStatusBar) DrawStatusBar(state, ui, state.tabs[(size_t)tabIndex]);
 }
 
 } // namespace

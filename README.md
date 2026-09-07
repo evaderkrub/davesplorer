@@ -52,7 +52,8 @@ be copied to another Windows machine and run; nothing needs installing.
   items to Windows, so they can be dropped on Explorer, the desktop, or an
   editor.
 - **Context menus** on items and on the empty area, plus "Show in Windows
-  Explorer" and "Open terminal here".
+  Explorer" and "Open terminal here". Each view's status bar also has New
+  folder and Open terminal buttons at its right end.
 - **View options**: hidden items, file name extensions, navigation pane,
   status bar.
 - **Scaling**: `Ctrl++` / `Ctrl+-` / `Ctrl+0` or `Ctrl`+wheel zoom the whole
