@@ -8,6 +8,10 @@
 #include "platform/Strings.h"
 
 #include <cctype>
+#ifndef _WIN32
+#include <sys/stat.h>
+#include <filesystem>
+#endif
 
 namespace app
 {
@@ -15,11 +19,20 @@ namespace app
 namespace
 {
 
+std::string PathKey(const std::string& path)
+{
+#ifdef _WIN32
+    return platform::ToLowerAscii(path);
+#else
+    return path;
+#endif
+}
+
 bool NameExists(const Tab& tab, const std::string& name)
 {
-    const std::string lower = platform::ToLowerAscii(name);
+    const std::string lower = PathKey(name);
     for (const platform::FileEntry& e : tab.entries)
-        if (platform::ToLowerAscii(e.name) == lower) return true;
+        if (PathKey(e.name) == lower) return true;
     return false;
 }
 
@@ -147,15 +160,35 @@ DropAction DefaultDropAction(const std::vector<std::string>& sources, const std:
 {
     if (ctrl) return DropAction::Copy;
     if (shift) return DropAction::Move;
+#ifndef _WIN32
+    struct stat src{}, dest{};
+    const bool sameDevice = !sources.empty() && stat(sources[0].c_str(), &src) == 0 &&
+                            stat(destDir.c_str(), &dest) == 0 && src.st_dev == dest.st_dev;
+    return sameDevice ? DropAction::Move : DropAction::Copy;
+#else
     if (sources.empty() || destDir.size() < 2 || sources[0].size() < 2) return DropAction::Copy;
     const bool sameDrive = std::toupper((unsigned char)sources[0][0]) == std::toupper((unsigned char)destDir[0]) &&
                            sources[0][1] == ':' && destDir[1] == ':';
     return sameDrive ? DropAction::Move : DropAction::Copy;
+#endif
 }
 
 bool CanDropOn(const std::vector<std::string>& sources, const std::string& destDir)
 {
     if (destDir.empty() || sources.empty()) return false;
+#ifndef _WIN32
+    std::error_code ec;
+    const auto dest = std::filesystem::weakly_canonical(destDir, ec);
+    if (ec) return false;
+    for (const auto& src : sources)
+        {
+        const auto source = std::filesystem::weakly_canonical(src, ec);
+        if (ec || source == dest) return false;
+        const auto relative = dest.lexically_relative(source);
+        if (platform::IsDirectory(src) && !relative.empty() && *relative.begin() != "..") return false;
+        }
+    return true;
+#else
     const std::string destLower = platform::ToLowerAscii(destDir);
     for (const std::string& src : sources)
         {
@@ -167,6 +200,7 @@ bool CanDropOn(const std::vector<std::string>& sources, const std::string& destD
             return false;
         }
     return true;
+#endif
 }
 
 bool DropPaths(AppState& state, const std::vector<std::string>& sources, const std::string& destDir,
@@ -184,7 +218,7 @@ bool DropPaths(AppState& state, const std::vector<std::string>& sources, const s
         }
     bool sameFolder = true;
     for (const std::string& p : sources)
-        if (platform::ToLowerAscii(ParentPath(p)) != platform::ToLowerAscii(destDir)) sameFolder = false;
+        if (PathKey(ParentPath(p)) != PathKey(destDir)) sameFolder = false;
 
     bool ok = true;
     if (action == DropAction::Move)

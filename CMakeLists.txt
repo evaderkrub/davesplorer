@@ -6,7 +6,10 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 
-project(davesplorer LANGUAGES C CXX RC)
+project(davesplorer LANGUAGES C CXX)
+if(WIN32)
+    enable_language(RC)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -85,6 +88,8 @@ add_library(imgui_test_engine STATIC
     ${IMTE_DIR}/imgui_te_utils.cpp)
 target_include_directories(imgui_test_engine SYSTEM PUBLIC ${imgui_test_engine_SOURCE_DIR})
 target_link_libraries(imgui_test_engine PUBLIC imgui)
+# The enabled hooks make these static libraries mutually dependent.
+target_link_libraries(imgui PUBLIC imgui_test_engine)
 
 # Third-party code compiles at its own warning level; the strict flags below
 # apply only to project targets, through dsp_strict.
@@ -102,6 +107,14 @@ endif()
 #   dsp_app : state and logic, plus the OS layer it calls. No ImGui.
 #   dsp_ui  : drawing. Reads dsp_app state, owns none of it.
 # ---------------------------------------------------------------------------
+if(WIN32)
+    set(DSP_PLATFORM_DIR src/platform)
+else()
+    set(DSP_PLATFORM_DIR src/platform/linux)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
+endif()
+
 add_library(dsp_app STATIC
     src/app/AppState.cpp
     src/app/Format.cpp
@@ -112,14 +125,20 @@ add_library(dsp_app STATIC
     src/app/Settings.cpp
     src/app/FileOps.cpp
     src/app/Shortcuts.cpp
-    src/platform/Strings.cpp
-    src/platform/Paths.cpp
-    src/platform/FileSystem.cpp
-    src/platform/Clipboard.cpp
-    src/platform/DragDrop.cpp
-    src/platform/Shell.cpp)
+    ${DSP_PLATFORM_DIR}/Strings.cpp
+    ${DSP_PLATFORM_DIR}/Paths.cpp
+    ${DSP_PLATFORM_DIR}/FileSystem.cpp
+    ${DSP_PLATFORM_DIR}/Clipboard.cpp
+    ${DSP_PLATFORM_DIR}/DragDrop.cpp
+    ${DSP_PLATFORM_DIR}/Shell.cpp)
 target_include_directories(dsp_app PUBLIC src)
-target_link_libraries(dsp_app PUBLIC dsp_strict shell32 ole32 shlwapi)
+target_link_libraries(dsp_app PUBLIC dsp_strict)
+if(WIN32)
+    target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi)
+else()
+    target_link_libraries(dsp_app PUBLIC PkgConfig::GIO SDL3::SDL3-static)
+    target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 add_library(dsp_ui STATIC
     src/ui/Theme.cpp
@@ -138,19 +157,22 @@ target_link_libraries(dsp_ui PUBLIC dsp_app imgui)
 # ---------------------------------------------------------------------------
 add_executable(davesplorer WIN32
     src/main.cpp
-    src/platform/Host.cpp
-    src/platform/app.rc)
+    src/platform/Host.cpp)
+if(WIN32)
+    target_sources(davesplorer PRIVATE src/platform/app.rc)
+endif()
 target_link_libraries(davesplorer PRIVATE dsp_ui imgui_backends imgui_test_engine SDL3::SDL3-static)
 set_target_properties(davesplorer PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DSP_STAGE_DIR}")
 add_custom_command(TARGET davesplorer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/assets" "${DSP_STAGE_DIR}/assets"
-    COMMENT "Staging assets beside davesplorer.exe")
+    COMMENT "Staging assets beside davesplorer")
 
 # The Explorer interceptor: a standalone, dependency-free Win32 exe that
 # Windows runs in place of explorer.exe when register.ps1 -Interceptor is
 # used. Kept tiny and separate from the app because it runs on the shell's
 # startup path.
+if(WIN32)
 add_executable(explorer_shim WIN32 src/platform/explorer_shim.cpp)
 target_link_libraries(explorer_shim PRIVATE shlwapi shell32)
 set_target_properties(explorer_shim PROPERTIES
@@ -166,9 +188,12 @@ add_custom_command(OUTPUT "${DSP_STAGE_DIR}/register.ps1"
     COMMENT "Staging register.ps1")
 add_custom_target(dsp_stage_tools ALL DEPENDS "${DSP_STAGE_DIR}/register.ps1")
 
+endif() # Windows shell registration
+
 # ---------------------------------------------------------------------------
 # Tests: console binaries.
 # ---------------------------------------------------------------------------
+
 enable_testing()
 set(DSP_TEST_DIR "${CMAKE_BINARY_DIR}/tests")
 
@@ -182,3 +207,7 @@ target_link_libraries(davesplorer_e2e_tests PRIVATE dsp_ui imgui_test_engine)
 target_compile_definitions(davesplorer_e2e_tests PRIVATE DSP_ASSETS_DIR="${CMAKE_SOURCE_DIR}/assets")
 set_target_properties(davesplorer_e2e_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DSP_TEST_DIR}")
 add_test(NAME e2e_tests COMMAND davesplorer_e2e_tests)
+
+if(NOT WIN32)
+    set_tests_properties(unit_tests e2e_tests PROPERTIES ENVIRONMENT "SDL_VIDEODRIVER=dummy")
+endif()

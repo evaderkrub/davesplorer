@@ -1,10 +1,61 @@
 # Davesplorer
 
-A Windows File Explorer clone: a native C++20 desktop application built on
-SDL3 and Dear ImGui (docking branch). The staged build is one folder that can
-be copied to another Windows machine and run; nothing needs installing.
+A native C++20 file manager for Windows and Linux, built on SDL3 and Dear
+ImGui (docking branch), with a Windows Explorer style interface. Windows
+builds are portable folders; Linux builds use the desktop’s filesystem,
+trash, and application associations.
 
-## What it does
+## Linux
+
+On Debian/Ubuntu, install the build dependencies if they are missing:
+
+```sh
+sudo apt install build-essential cmake ninja-build git pkg-config libglib2.0-dev \
+  libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev \
+  libxss-dev libxtst-dev libwayland-dev libxkbcommon-dev libdecor-0-dev \
+  libegl1-mesa-dev libgl1-mesa-dev wayland-protocols
+```
+
+Use CMake 3.24+ and a compiler supporting C++20. The first configure downloads
+SDL3, Dear ImGui, and the test engine; subsequent builds reuse them.
+
+```sh
+./build.sh                         # configure, build, and run both test suites
+./build/linux-release/stage/davesplorer
+./build/linux-release/stage/davesplorer "$HOME/Downloads"
+./build.sh debug                   # optional debug build
+```
+
+The equivalent manual commands are `cmake --preset linux-release`,
+`cmake --build --preset linux-release`, and
+`ctest --preset linux-release --output-on-failure`.
+
+Both Wayland and X11 are supported. Assets are staged beside the executable;
+settings and the dock layout live in `$XDG_CONFIG_HOME/davesplorer`
+(default `~/.config/davesplorer`). Home and special folders follow the
+Linux desktop configuration. “This PC” shows the root filesystem and mounted
+volumes exposed by GIO.
+
+Linux paths are case-sensitive, use `/`, and preserve spaces and backslashes
+in filenames. Delete uses the desktop trash through GIO; permanent deletion
+requires the existing confirmation dialog. Copy and move reject existing
+destination names without overwriting; copying into the same directory
+creates a uniquely named copy. Linux does not yet provide the Windows shell’s
+progress and conflict dialogs, and large operations run synchronously.
+
+File cut/copy/paste offers GNOME and KDE clipboard formats and URI lists.
+Incoming file drops and dragging between Davesplorer views are supported.
+**Dragging out to another application is not implemented on Linux yet; use
+copy/paste instead.** The tests use SDL’s dummy video driver so clipboard
+checks do not alter your desktop clipboard. External desktop interoperability
+still depends on the receiving application.
+
+“Open in system file manager” uses the desktop’s folder handler; revealing
+an item uses `org.freedesktop.FileManager1` with a folder-opening fallback.
+“Open terminal here” finds an installed terminal launcher. The Windows
+registration script and Explorer interceptor apply only to Windows.
+
+## What it does (Windows feature reference)
 
 - **Browse** drives and folders with a Windows Explorer layout: navigation
   pane on the left (Quick access, This PC, expandable drive tree), one or
@@ -143,7 +194,8 @@ anything: set `DSP_SHIM_DRYRUN=1` and it appends each decision to
     src/main.cpp          entry point, nothing else
     src/app/              application state and logic, no ImGui
     src/ui/               everything that draws
-    src/platform/         Win32 file system and shell, SDL host loop
+    src/platform/         Win32 platform layer and shared SDL host loop
+    src/platform/linux/   Linux filesystem, clipboard, and desktop integration
     assets/fonts/         Open Sans, Fira Code, Material Icons
     assets/icon/          the red-folder app icon (.ico, .png)
     tools/make_icon.py    regenerates the icon
@@ -155,7 +207,7 @@ and `app::Tab` are plain structs; the unit tests exercise navigation,
 listing, sorting, selection and file operations without a window. Failures
 cross module boundaries as `bool` plus an error string, never as exceptions.
 
-## Build
+## Windows build
 
 Requirements: Visual Studio 2022 or later with the C++ workload, CMake 3.24+,
 Ninja, and network access on the first configure (SDL3, Dear ImGui and the

@@ -52,7 +52,7 @@ bool Load(const std::string& assetsDir, float sizePx, std::string& error)
 {
     ImGuiIO& io = ImGui::GetIO();
     g_size = sizePx;
-    const std::string dir = assetsDir + "\\fonts\\";
+    const std::string dir = assetsDir + "/fonts/";
     const std::string icons = dir + "MaterialIcons-Regular.ttf";
 
     g_ui = AddText(io, dir + "OpenSans-Regular.ttf", sizePx);

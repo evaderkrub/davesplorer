@@ -1,3 +1,4 @@
+#include <filesystem>
 #include "ui/MainWindow.h"
 #include "ui/DragDrop.h"
 #include "ui/IconsMaterialDesign.h"
@@ -55,7 +56,7 @@ void DrawFolderNode(app::AppState& state, UiState& ui, const std::string& path, 
     const bool isCurrent = current == path;
     const bool onPath = !isCurrent && current.size() > path.size() &&
                         current.compare(0, path.size(), path) == 0 &&
-                        (path.back() == '\\' || current[path.size()] == '\\');
+                        (path.back() == std::filesystem::path::preferred_separator || current[path.size()] == std::filesystem::path::preferred_separator);
 
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_NavLeftJumpsToParent;

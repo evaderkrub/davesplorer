@@ -25,7 +25,13 @@
 #include "imgui_test_engine/imgui_te_coroutine.h"
 #include "imgui_test_engine/imgui_te_engine.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#include <SDL3/SDL.h>
+#endif
+#include <filesystem>
 #undef Yield   // windows.h defines Yield() as a macro, which breaks ctx->Yield()
 
 #include <cstdio>
@@ -47,14 +53,18 @@ Fixture* g_fx = nullptr;
 
 std::string TempRoot(const char* tag)
 {
+#ifdef _WIN32
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
     return platform::WideToUtf8(tmp) + "davesplorer_" + tag + "_" + std::to_string(GetCurrentProcessId());
+#else
+    return (std::filesystem::temp_directory_path() / ("davesplorer_" + std::string(tag) + "_" + std::to_string(getpid()))).string();
+#endif
 }
 
 void WriteFile(const std::string& path, const char* content)
 {
-    std::ofstream(platform::Utf8ToWide(path)) << content;
+    std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str()))) << content;
 }
 
 // The listing for the scratch folder, freshly read from disk.
@@ -478,7 +488,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->MenuClick("File/New folder");
         ctx->Yield(2);
         ctx->SetRef("//New folder");
-        ctx->ItemInputValue("##name", "bad<name");
+        ctx->ItemInputValue("##name", "bad/name");
         ctx->Yield(2);
         IM_CHECK(ImGui::GetTopMostPopupModal() != nullptr);
         IM_CHECK(!fx.ui.dialogMessage.empty());
@@ -819,9 +829,13 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
+#ifdef _WIN32
         const std::string hidden = app::JoinPath(fx.root, "secret.txt");
         WriteFile(hidden, "shh");
         SetFileAttributesW(platform::Utf8ToWide(hidden).c_str(), FILE_ATTRIBUTE_HIDDEN);
+#else
+        WriteFile(app::JoinPath(fx.root, ".secret.txt"), "shh");
+#endif
         RefActiveView(ctx, fx);
         ctx->ItemClick("**/###Refresh");
         ctx->Yield(2);
@@ -844,6 +858,10 @@ void RegisterTests(ImGuiTestEngine* e)
 //   -v      debug-level log for each test
 int main(int argc, char** argv)
 {
+#ifndef _WIN32
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    if (!SDL_Init(SDL_INIT_VIDEO)) return 1;
+#endif
     const char* filter = nullptr;
     bool verbose = false;
     for (int i = 1; i < argc; ++i)

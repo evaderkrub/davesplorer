@@ -26,7 +26,7 @@ bool NavigateTo(Tab& tab, const std::string& rawPath, std::string& error)
         {
         error = platform::PathExists(path)
                     ? "'" + path + "' is a file, not a folder."
-                    : "Windows can't find '" + path + "'. Check the spelling and try again.";
+                    : "Can't find '" + path + "'. Check the spelling and try again.";
         return false;
         }
     // A forward branch is discarded once the user goes somewhere new, as in

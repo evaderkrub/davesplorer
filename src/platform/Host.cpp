@@ -10,7 +10,13 @@
 #include "ui/UiState.h"
 
 #include <SDL3/SDL.h>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <glib.h>
+#include <filesystem>
+#endif
+#include "app/PathUtil.h"
 #include "imgui.h"
 #include "imgui_internal.h"
 #include "imgui_impl_sdl3.h"
@@ -31,8 +37,8 @@ std::string BuildInfo()
 {
     const int v = SDL_GetVersion();
     char buf[128];
-    std::snprintf(buf, sizeof(buf), "SDL %d.%d.%d, MSVC %d, built %s", SDL_VERSIONNUM_MAJOR(v),
-                  SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v), (int)_MSC_VER, __DATE__);
+    std::snprintf(buf, sizeof(buf), "SDL %d.%d.%d, built %s", SDL_VERSIONNUM_MAJOR(v),
+                  SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v), __DATE__);
     return buf;
 }
 
@@ -40,6 +46,7 @@ void ShowFatal(const char* what)
 {
     // Stderr goes nowhere for a WIN32-subsystem exe; the message box is the
     // only channel that reaches the user.
+    std::fprintf(stderr, "%s\n", what);
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Davesplorer", what, nullptr);
 }
 
@@ -47,6 +54,7 @@ void ShowFatal(const char* what)
 
 int RunApplication(int argc, char** argv)
 {
+    SDL_SetAppMetadata("Davesplorer", "0.1.0", "com.davesplorer.Davesplorer");
     // The window class takes its icon from resource 101 in app.rc, which
     // is the same red folder Explorer shows on the exe; no pixel data has
     // to be shipped or decoded for it.
@@ -59,7 +67,20 @@ int RunApplication(int argc, char** argv)
         }
 
     app::AppState state;
+#ifdef _WIN32
     app::InitAppState(state, ExecutableDir());
+#else
+    const std::string configDir = app::JoinPath(g_get_user_config_dir(), "davesplorer");
+    std::error_code configError;
+    std::filesystem::create_directories(configDir, configError);
+    if (configError)
+        {
+        ShowFatal(("Could not create settings directory: " + configError.message()).c_str());
+        SDL_Quit();
+        return 1;
+        }
+    app::InitAppState(state, ExecutableDir(), configDir);
+#endif
     // "davesplorer.exe <folder-or-file>": what the shell passes when a
     // folder is opened with this program. SDL's main shim already
     // converted the arguments to UTF-8.
@@ -76,6 +97,14 @@ int RunApplication(int argc, char** argv)
         SDL_Quit();
         return 1;
         }
+#ifndef _WIN32
+    const std::string iconPath = app::JoinPath(state.exeDir, "assets/icon/davesplorer.png");
+    if (SDL_Surface* icon = SDL_LoadPNG(iconPath.c_str()))
+        {
+        SDL_SetWindowIcon(window, icon);
+        SDL_DestroySurface(icon);
+        }
+#endif
     SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer)
         {
@@ -98,7 +127,7 @@ int RunApplication(int argc, char** argv)
     ImGui::GetCurrentContext()->ConfigNavWindowingKeyPrev = 0;
 
     std::string fontError;
-    ui::fonts::Load(state.exeDir + "\\assets", kBaseFontPx, fontError);
+    ui::fonts::Load(app::JoinPath(state.exeDir, "assets"), kBaseFontPx, fontError);
 
     ui::UiState uiState;
     uiState.dpiScale = SDL_GetWindowDisplayScale(window);
@@ -146,8 +175,13 @@ int RunApplication(int argc, char** argv)
                     case SDL_EVENT_DROP_COMPLETE:
                         uiState.externalDrop.active = false;
                         uiState.externalDrop.completed = true;
+#ifdef _WIN32
                         uiState.externalDrop.ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
                         uiState.externalDrop.shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+#else
+                        uiState.externalDrop.ctrl = (SDL_GetModState() & SDL_KMOD_CTRL) != 0;
+                        uiState.externalDrop.shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
+#endif
                         break;
                     default:
                         break;

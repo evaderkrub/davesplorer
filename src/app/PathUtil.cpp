@@ -1,3 +1,56 @@
+#ifndef _WIN32
+#include "app/PathUtil.h"
+#include <filesystem>
+namespace app
+{
+std::string NormalizePath(const std::string& path)
+{
+    if (path.empty()) return "";
+    // Linux names may contain backslashes and leading/trailing spaces.
+    std::error_code ec;
+    auto absolute = std::filesystem::absolute(path, ec);
+    if (ec) return path;
+    std::string result = absolute.lexically_normal().string();
+    while (result.size() > 1 && result.back() == '/') result.pop_back();
+    return result;
+}
+bool IsDriveRoot(const std::string& path) { return path == "/"; }
+std::string ParentPath(const std::string& path)
+{
+    if (path.empty() || path == "/") return "";
+    return std::filesystem::path(path).parent_path().string();
+}
+std::string PathName(const std::string& path)
+{
+    if (path.empty()) return "This PC";
+    if (path == "/") return "/";
+    return std::filesystem::path(path).filename().string();
+}
+std::string JoinPath(const std::string& dir, const std::string& name)
+{
+    return (std::filesystem::path(dir) / name).string();
+}
+std::vector<Crumb> Breadcrumbs(const std::string& path)
+{
+    std::vector<Crumb> out{{"This PC", ""}};
+    if (path.empty()) return out;
+    std::string sofar;
+    for (const auto& part : std::filesystem::path(path))
+        {
+        if (part.empty()) continue;
+        sofar = JoinPath(sofar, part.string());
+        out.push_back({part.string(), sofar});
+        }
+    return out;
+}
+bool IsValidFileName(const std::string& name, std::string& reason)
+{
+    if (name.empty() || name == "." || name == ".." || name.find('/') != std::string::npos || name.find('\0') != std::string::npos)
+        { reason = "Enter a name other than . or .., without a slash or NUL."; return false; }
+    return true;
+}
+}
+#else
 #include "app/PathUtil.h"
 
 #include <cctype>
@@ -163,3 +216,5 @@ bool IsValidFileName(const std::string& name, std::string& reason)
 }
 
 } // namespace app
+
+#endif

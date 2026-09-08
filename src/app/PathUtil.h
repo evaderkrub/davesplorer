@@ -1,4 +1,4 @@
-// Pure string manipulation of Windows paths. Nothing here touches the disk,
+// Native path manipulation for Windows and Linux. Nothing here touches the disk,
 // so it is testable without one.
 //
 // The empty string is a real location: "This PC", the virtual root listing

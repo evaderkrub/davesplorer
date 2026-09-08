@@ -18,7 +18,7 @@ struct FileEntry
     std::string  path;          // full UTF-8 path
     std::string  extension;     // lower-case, no dot, empty for folders
     uint64_t     size = 0;
-    int64_t      modified = 0;  // FILETIME ticks (100ns since 1601), UTC
+    int64_t      modified = 0;  // UTC: FILETIME ticks on Windows, Unix seconds on Linux
     bool         isDirectory = false;
     bool         isHidden = false;
     bool         isSystem = false;

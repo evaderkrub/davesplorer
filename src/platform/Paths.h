@@ -1,6 +1,5 @@
-// Where the executable lives. Every runtime path (assets, settings, layout)
-// is resolved against this, never the working directory, so a shortcut or a
-// launch from another drive cannot break a portable build.
+// Where the executable lives. Assets resolve from here on every platform.
+// Windows also keeps settings/layout here; Linux uses its XDG config directory.
 #pragma once
 
 #include <string>

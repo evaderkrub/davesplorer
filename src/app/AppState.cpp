@@ -24,11 +24,11 @@ const Tab& AppState::active() const
     return tabs[(size_t)i];
 }
 
-void InitAppState(AppState& state, const std::string& exeDir)
+void InitAppState(AppState& state, const std::string& exeDir, const std::string& configDir)
 {
     state.exeDir = exeDir;
-    state.settingsFile = JoinPath(exeDir, "settings.ini");
-    state.layoutFile   = JoinPath(exeDir, "imgui.ini");
+    state.settingsFile = JoinPath(configDir.empty() ? exeDir : configDir, "settings.ini");
+    state.layoutFile   = JoinPath(configDir.empty() ? exeDir : configDir, "imgui.ini");
     LoadSettings(state.settingsFile, state.settings);
 
     state.quickAccess = platform::GetKnownFolders();
@@ -65,10 +65,16 @@ bool ApplyStartArgument(AppState& state, const std::string& argument)
             break;
             }
         }
+#ifdef _WIN32
     std::string path = NormalizePath(raw);
+#else
+    std::string path = raw;
+#endif
     // Explorer quotes paths it passes along; a shell verb may leave the
     // quotes in.
     if (path.size() >= 2 && path.front() == '"' && path.back() == '"') path = NormalizePath(path.substr(1, path.size() - 2));
+
+    path = NormalizePath(path);
 
     std::string folder, select;
     if (!path.empty() && platform::IsDirectory(path) && !(selectMode && !IsDriveRoot(path)))

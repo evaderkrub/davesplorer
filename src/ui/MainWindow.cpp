@@ -204,7 +204,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         if (ImGui::MenuItem("New folder", "Ctrl+Shift+N", false, inFolder)) StartNewFolder(state, ui);
         if (ImGui::MenuItem("New text file", nullptr, false, inFolder)) StartNewFile(state, ui);
         ImGui::Separator();
-        if (ImGui::MenuItem("Open in Windows Explorer")) OpenInExplorer(state, ui);
+        if (ImGui::MenuItem("Open in system file manager")) OpenInExplorer(state, ui);
         if (ImGui::MenuItem("Open terminal here", nullptr, false, inFolder))
             {
             std::string error;

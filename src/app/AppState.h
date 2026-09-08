@@ -50,7 +50,7 @@ struct AppState
 };
 
 // Loads settings, discovers drives and known folders, opens the first tab.
-void InitAppState(AppState& state, const std::string& exeDir);
+void InitAppState(AppState& state, const std::string& exeDir, const std::string& configDir = {});
 
 // A path handed over on the command line (by the shell, a shortcut, or a
 // terminal) replaces the first tab: a folder opens directly, a file opens

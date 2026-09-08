@@ -14,7 +14,13 @@
 #include "platform/FileSystem.h"
 #include "platform/Strings.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#include <SDL3/SDL.h>
+#endif
+#include <filesystem>
 
 #include <cstdio>
 #include <cstring>
@@ -58,9 +64,13 @@ struct TempDir
     std::string path;
     TempDir(const char* tag)
     {
+#ifdef _WIN32
         wchar_t tmp[MAX_PATH];
         GetTempPathW(MAX_PATH, tmp);
         path = platform::WideToUtf8(tmp) + "davesplorer_" + tag + "_" + std::to_string(GetCurrentProcessId());
+#else
+        path = (std::filesystem::temp_directory_path() / ("davesplorer_" + std::string(tag) + "_" + std::to_string(getpid()))).string();
+#endif
         std::string error;
         platform::CreateFolder(path, error);
     }
@@ -72,7 +82,7 @@ struct TempDir
     std::string file(const char* name, const char* content = "x")
     {
         const std::string p = app::JoinPath(path, name);
-        std::ofstream(platform::Utf8ToWide(p)) << content;
+        std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(p.c_str()))) << content;
         return p;
     }
     std::string dir(const char* name)
@@ -87,6 +97,7 @@ struct TempDir
 // The clipboard tests use the real clipboard. Whatever text was there is put
 // back afterwards; anything else is lost, which is the price of testing the
 // real thing.
+#ifdef _WIN32
 struct ClipboardKeeper
 {
     std::wstring text;
@@ -121,9 +132,14 @@ struct ClipboardKeeper
     }
 };
 
+#else
+struct ClipboardKeeper {};
+#endif
+
 void TestPathUtil()
 {
     using namespace app;
+#ifdef _WIN32
     CHECK_EQ(NormalizePath("c:"), "C:\\");
     CHECK_EQ(NormalizePath("c:/users/dave/"), "C:\\users\\dave");
     CHECK_EQ(NormalizePath("  C:\\x\\\\y\\ "), "C:\\x\\y");
@@ -170,7 +186,92 @@ void TestPathUtil()
     CHECK(!IsValidFileName("COM1.txt", reason));
     CHECK(!IsValidFileName("trailing.", reason));
     CHECK(!IsValidFileName("..", reason));
+#else
+    CHECK_EQ(NormalizePath("/tmp//one/../two/"), "/tmp/two");
+    CHECK_EQ(NormalizePath("/tmp/with\\backslash "), "/tmp/with\\backslash ");
+    CHECK_EQ(NormalizePath(""), "");
+    CHECK_EQ(ParentPath("/home"), "/");
+    CHECK_EQ(ParentPath("/"), "");
+    CHECK_EQ(PathName("/"), "/");
+    CHECK_EQ(JoinPath("/", "home"), "/home");
+    CHECK(IsDriveRoot("/"));
+    const auto crumbs = Breadcrumbs("/home/dave");
+    CHECK_EQ(crumbs.size(), (size_t)4);
+    CHECK_EQ(crumbs[1].path, "/");
+    CHECK_EQ(crumbs[3].path, "/home/dave");
+    std::string reason;
+    CHECK(IsValidFileName("con", reason));
+    CHECK(IsValidFileName("a:b\\c ", reason));
+    CHECK(!IsValidFileName("", reason));
+    CHECK(!IsValidFileName("a/b", reason));
+    CHECK(!IsValidFileName("..", reason));
+    CHECK(!IsValidFileName(std::string("a\0b", 3), reason));
+#endif
 }
+
+#ifndef _WIN32
+void TestLinuxFileSystem()
+{
+    TempDir tmp("linux");
+    std::string error;
+    const std::string source = tmp.dir("Source");
+    const std::string other = tmp.dir("source");
+    const std::string nested = app::JoinPath(source, "nested");
+    CHECK(platform::CreateFolder(nested, error));
+    const std::string file = tmp.file("café #100% \\ file.txt", "original");
+    CHECK(platform::CopyPaths({file}, source, false, error));
+    const std::string copied = app::JoinPath(source, app::PathName(file));
+    CHECK(!platform::CopyPaths({file}, source, false, error));
+    CHECK(!error.empty());
+    CHECK(!platform::CreateEmptyFile(file, error));
+    const std::string collision = tmp.file("collision.txt", "keep me");
+    CHECK(!platform::RenamePath(file, collision, error));
+    std::string contents;
+    std::getline(std::ifstream(collision), contents);
+    CHECK_EQ(contents, "keep me");
+    CHECK(platform::PathExists(file));
+    CHECK(app::CanDropOn({source}, other)); // Case-sensitive siblings.
+    CHECK(!app::CanDropOn({source}, nested));
+    const std::string alias = app::JoinPath(tmp.path, "alias");
+    std::filesystem::create_directory_symlink(nested, alias);
+    CHECK(!app::CanDropOn({source}, alias));
+    CHECK(!platform::CopyPaths({source}, alias, false, error));
+    CHECK(!platform::MovePaths({source}, alias, error));
+    CHECK(platform::CopyPaths({source}, other, false, error));
+    CHECK(platform::PathExists(app::JoinPath(app::JoinPath(other, "Source"), app::PathName(file))));
+    const std::string link = app::JoinPath(tmp.path, "dangling");
+    std::filesystem::create_symlink("absent-target", link);
+    CHECK(platform::PathExists(link));
+    CHECK(!platform::IsDirectory(link));
+    CHECK(platform::CopyPaths({link}, other, false, error));
+    CHECK(std::filesystem::is_symlink(app::JoinPath(other, "dangling")));
+    CHECK(platform::MovePaths({copied}, nested, error));
+    CHECK(!platform::PathExists(copied));
+    CHECK(platform::PathExists(app::JoinPath(nested, app::PathName(file))));
+    CHECK_EQ(platform::WideToUtf8(platform::Utf8ToWide("café 日本語")), "café 日本語");
+    CHECK(platform::ContainsNoCase("CAFÉ", "café"));
+    CHECK(platform::NaturalCompare(L"file2", L"file10") < 0);
+    CHECK(platform::SetClipboardFiles({file}, true, error));
+    std::vector<std::string> files;
+    bool cut = false;
+    CHECK(platform::GetClipboardFiles(files, cut));
+    CHECK_EQ(files.size(), (size_t)1);
+    if (!files.empty()) CHECK_EQ(files[0], file);
+    CHECK(cut);
+    const auto sequence = platform::ClipboardSequence();
+    CHECK(SDL_SetClipboardText("replacement text"));
+    CHECK(platform::ClipboardSequence() != sequence);
+    CHECK(!platform::ClipboardHasFiles());
+    CHECK(platform::ClearClipboard());
+
+    app::AppState state;
+    const std::string config = tmp.dir("config");
+    app::InitAppState(state, tmp.path, config);
+    CHECK_EQ(state.settingsFile, app::JoinPath(config, "settings.ini"));
+    CHECK_EQ(state.layoutFile, app::JoinPath(config, "imgui.ini"));
+    CHECK_EQ(state.exeDir, tmp.path);
+}
+#endif
 
 void TestFormat()
 {
@@ -312,8 +413,12 @@ void TestNavigationAndListing()
     CHECK(!app::CanGoUp(tab));
 
     // Hidden files are excluded unless asked for.
+#ifdef _WIN32
     const std::string hidden = tmp.file("hidden.txt");
     SetFileAttributesW(platform::Utf8ToWide(hidden).c_str(), FILE_ATTRIBUTE_HIDDEN);
+#else
+    tmp.file(".hidden.txt");
+#endif
     CHECK(app::NavigateTo(tab, tmp.path, error));
     app::ReloadIfNeeded(tab, settings);
     CHECK_EQ(tab.entries.size(), (size_t)8);
@@ -393,7 +498,7 @@ void TestFileOps()
     app::ReloadIfNeeded(tab, state.settings);
     CHECK_EQ(app::UniqueNewName(tab, "New folder"), "New folder (2)");
     CHECK_EQ(app::UniqueNewName(tab, "a.txt"), "a (2).txt");
-    CHECK(!app::CreateFolderIn(tab, "bad:name", error));
+    CHECK(!app::CreateFolderIn(tab, "bad/name", error));
     CHECK(!error.empty());
 
     CHECK(app::CreateFileIn(tab, "b.txt", error));
@@ -411,7 +516,7 @@ void TestFileOps()
 
     // Copy within the same folder makes " - Copy". This goes through the
     // real Windows clipboard, whose previous contents are put back after.
-    ClipboardKeeper keeper;
+    [[maybe_unused]] ClipboardKeeper keeper;
     app::ClearSelection(tab);
     for (size_t i = 0; i < tab.entries.size(); ++i)
         if (tab.entries[i].name == "renamed.txt") tab.selected[i] = 1;
@@ -461,7 +566,7 @@ void TestFileOps()
 
 void TestClipboardAndDrop()
 {
-    ClipboardKeeper keeper;
+    [[maybe_unused]] ClipboardKeeper keeper;
     TempDir tmp("drop");
     const std::string a = tmp.file("a.txt", "aaa");
     const std::string b = tmp.file("b.txt", "bb");
@@ -606,7 +711,7 @@ void TestAppState()
     CHECK(app::ApplyStartArgument(state, sub));
     CHECK_EQ(state.tabs.size(), (size_t)1);
     CHECK_EQ(state.active().path, sub);
-    CHECK(app::ApplyStartArgument(state, "\"" + sub + "\\\""));
+    CHECK(app::ApplyStartArgument(state, "\"" + sub + "/\""));
     CHECK_EQ(state.active().path, sub);
     CHECK(app::ApplyStartArgument(state, file));
     CHECK_EQ(state.active().path, tmp.path);
@@ -634,8 +739,15 @@ void TestAppState()
 
 int main()
 {
+#ifndef _WIN32
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    if (!SDL_Init(SDL_INIT_VIDEO)) return 1;
+#endif
     TestPathUtil();
     TestFormat();
+#ifndef _WIN32
+    TestLinuxFileSystem();
+#endif
     TestSettings();
     TestNavigationAndListing();
     TestSelection();

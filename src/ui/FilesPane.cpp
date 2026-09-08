@@ -272,7 +272,7 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         OpenView(state, ui, focusedPath);
         return;
         }
-    if (ImGui::MenuItem("Show in Windows Explorer"))
+    if (ImGui::MenuItem("Show in system file manager"))
         {
         std::string error;
         const std::vector<int> sel = app::SelectedIndices(tab);
