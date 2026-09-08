@@ -400,7 +400,12 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
     const ImGuiTableFlags flags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable | ImGuiTableFlags_Hideable |
                                   ImGuiTableFlags_Sortable | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY |
                                   ImGuiTableFlags_ScrollX | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingFixedFit;
-    if (!ImGui::BeginTable("FileTable", 4, flags)) return;
+    // Leave a small empty strip on the right of the list. It is always
+    // present, whatever the column widths, so a rubber-band always has an
+    // empty place to start from -- even in a folder that fills the height.
+    const float lassoMargin = 24.0f * scale;
+    const ImVec2 tableOuter(std::max(ImGui::GetContentRegionAvail().x - lassoMargin, 160.0f), 0.0f);
+    if (!ImGui::BeginTable("FileTable", 4, flags, tableOuter)) return;
 
     ImGui::TableSetupScrollFreeze(0, 1);
     ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoHide |
@@ -512,8 +517,11 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             // here, one frame before the highlight, which reads smoothly.
             if (v.lassoActive)
                 {
+                // Rows read as full-width, so the band selects by vertical
+                // overlap: a drag anywhere down the list (the right margin
+                // included) grabs the rows its height covers.
                 const ImRect rowRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-                const bool inLasso = lassoRect.Overlaps(rowRect);
+                const bool inLasso = lassoRect.Min.y <= rowRect.Max.y && lassoRect.Max.y >= rowRect.Min.y;
                 const bool base = entryIndex < (int)v.lassoBase.size() && v.lassoBase[(size_t)entryIndex];
                 tab.selected[(size_t)entryIndex] = (v.lassoAdditive ? (base || inLasso) : inLasso) ? 1 : 0;
                 }
@@ -718,6 +726,20 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
             {
             ImGuiWindow* area = ImGui::GetCurrentWindow();
             FileDropTargetRect(state, ui, tab.path, area->InnerRect, area->GetID("##listdrop"));
+            }
+        // A press in the empty right-hand margin (outside the table) also
+        // begins a rubber-band; the table's own handling promotes and draws
+        // it. This is the always-available start point for a packed folder.
+        ViewUi& v = ui.view(tab.id);
+        ImGuiIO& io = ImGui::GetIO();
+        if (!tab.path.empty() && !v.lassoActive && !v.lassoPending && !ImGui::IsDragDropActive() &&
+            ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+            v.lassoPending = true;
+            v.lassoActive = false;
+            v.lassoAnchor = io.MousePos;
+            v.lassoAdditive = io.KeyCtrl || io.KeyShift;
+            v.lassoBase = tab.selected;
             }
         }
     ImGui::EndChild();

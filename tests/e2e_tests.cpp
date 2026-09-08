@@ -756,6 +756,29 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 0);
     };
 
+    t = IM_REGISTER_TEST(e, "explorer", "lasso_from_right_margin");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        const ImGuiTestItemInfo alpha = ctx->ItemInfo("**/###alpha.txt");
+        const ImGuiTestItemInfo gamma = ctx->ItemInfo("**/###gamma.png");
+        IM_CHECK(alpha.ID != 0 && gamma.ID != 0);
+        // Start in the empty area to the right of the columns (past each
+        // row's right edge) and drag straight down over the three files.
+        const float mx = gamma.RectFull.Max.x + 16.0f;
+        ctx->MouseMoveToPos(ImVec2(mx, alpha.RectFull.Min.y + 2.0f));
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(mx, gamma.RectFull.Max.y - 2.0f));
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.view(fx.state.active().id).lassoActive);
+        ctx->MouseUp(0);
+        ctx->Yield(2);
+        // The three files, selected by vertical overlap; the sub folder sits
+        // above alpha and is left out.
+        IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 3);
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "shortcut_bar_pin_jump_clear");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
