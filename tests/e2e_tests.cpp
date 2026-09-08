@@ -402,6 +402,44 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(thirdNode != 0 && thirdNode != leftNode && thirdNode != rightNode);
     };
 
+    t = IM_REGISTER_TEST(e, "explorer", "drag_between_views_into_folder");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        const int leftId = fx.state.active().id;
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Split view right");
+        ctx->Yield(4);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)2);
+        const int rightId = fx.state.tabs[1].id;
+        // Point the right view at sub, so the two views show different
+        // folders -- the real "drag from here to there" case.
+        std::string err;
+        app::NavigateTo(fx.state.tabs[1], app::JoinPath(fx.root, "sub"), err);
+        ctx->Yield(3);
+        const std::string sub = app::JoinPath(fx.root, "sub");
+        IM_CHECK_STR_EQ(fx.state.tabs[1].path.c_str(), sub.c_str());
+
+        // A real mouse drag (press, cross to the other window, release), not
+        // the teleporting ItemDragAndDrop -- dropped onto the right view's
+        // list background, i.e. into the folder it is showing.
+        ctx->SetRef(ImGuiTestRef(ui::ViewWindowId(leftId)));
+        ctx->MouseMove("**/###alpha.txt");
+        ctx->MouseDown(0);
+        ctx->MouseLiftDragThreshold();
+        ImGuiWindow* rightWin = ctx->WindowInfo(ImGuiTestRef(ui::ViewWindowId(rightId))).Window;
+        IM_CHECK(rightWin != nullptr);
+        ctx->MouseMoveToPos(ImVec2(rightWin->Pos.x + rightWin->Size.x * 0.5f,
+                                   rightWin->Pos.y + rightWin->Size.y * 0.7f));
+        ctx->Yield(2);
+        IM_CHECK(ImGui::IsDragDropActive());
+        IM_CHECK_EQ(fx.ui.dragPaths.size(), (size_t)1);
+        ctx->MouseUp(0);
+        ctx->Yield(3);
+        IM_CHECK(platform::PathExists(app::JoinPath(sub, "alpha.txt")));
+        IM_CHECK(!platform::PathExists(app::JoinPath(fx.root, "alpha.txt")));
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "new_folder_dialog");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;

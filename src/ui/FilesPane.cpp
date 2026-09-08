@@ -524,14 +524,6 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::PopStyleColor(3);
 
-    // The empty part of the list (and any non-folder row) drops into the
-    // folder being shown.
-    if (!tab.path.empty() && !ui.rowDropHovered)
-        {
-        ImGuiWindow* inner = ImGui::GetCurrentWindow();
-        FileDropTargetRect(state, ui, tab.path, inner->InnerRect, inner->GetID("##listdrop"));
-        }
-
     // Resolve clicks after the loop so selection changes cannot shift rows
     // mid-iteration.
     ImGuiIO& io = ImGui::GetIO();
@@ -655,6 +647,15 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
     else
         {
         DrawFileTable(state, ui, tabIndex);
+        // The list background (and any non-folder row) drops into the folder
+        // being shown. Done here at the child level, not inside the table:
+        // inside BeginTable the clip rect is a narrow per-column region, so
+        // the drop's hover test would miss most of the list.
+        if (!tab.path.empty() && !ui.rowDropHovered)
+            {
+            ImGuiWindow* area = ImGui::GetCurrentWindow();
+            FileDropTargetRect(state, ui, tab.path, area->InnerRect, area->GetID("##listdrop"));
+            }
         }
     ImGui::EndChild();
     HandleListKeys(state, ui, tabIndex);
