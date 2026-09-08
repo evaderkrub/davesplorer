@@ -41,6 +41,15 @@ struct ViewUi
     bool    wantFocus = false;     // bring the window (and its dock tab) to front
     ImGuiID dockId = 0;            // where the window sat last frame, 0 when floating
     ImGuiID dockHint = 0;          // dock here on the next Begin (a split just made the node)
+
+    // Rubber-band (lasso) selection: press in empty space and drag a
+    // rectangle over rows. Pending until the mouse moves, so a plain click
+    // still just clears the selection.
+    bool                 lassoPending = false;
+    bool                 lassoActive = false;
+    bool                 lassoAdditive = false;   // Ctrl/Shift held: add to the existing selection
+    ImVec2               lassoAnchor{};           // screen-space press point
+    std::vector<uint8_t> lassoBase;               // selection snapshot when the lasso began
 };
 
 struct UiState

@@ -698,6 +698,54 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(!ctx->ItemExists("**/###row0.txt"));
     };
 
+    t = IM_REGISTER_TEST(e, "explorer", "lasso_rubber_band_selects_rows");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        // Sorted: folders first (sub), then alpha.txt, beta.md, gamma.png.
+        const ImGuiTestItemInfo alpha = ctx->ItemInfo("**/###alpha.txt");
+        const ImGuiTestItemInfo gamma = ctx->ItemInfo("**/###gamma.png");
+        IM_CHECK(alpha.ID != 0 && gamma.ID != 0);
+        const float x = alpha.RectFull.GetCenter().x;
+
+        // Press in the empty space below the last row and drag up over the
+        // three files, not up as far as the sub folder.
+        ctx->MouseMoveToPos(ImVec2(x, gamma.RectFull.Max.y + 30.0f));
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(x, gamma.RectFull.GetCenter().y));
+        ctx->Yield();
+        ctx->MouseMoveToPos(ImVec2(x, alpha.RectFull.GetCenter().y));
+        ctx->Yield(2);
+        IM_CHECK(fx.ui.view(fx.state.active().id).lassoActive);
+        ctx->MouseUp(0);
+        ctx->Yield(2);
+        const app::Tab& tab = fx.state.active();
+        IM_CHECK_EQ(app::SelectedCount(tab), 3);
+        for (const char* name : { "alpha.txt", "beta.md", "gamma.png" })
+            {
+            int idx = -1;
+            for (size_t i = 0; i < tab.entries.size(); ++i)
+                if (tab.entries[i].name == name) idx = (int)i;
+            IM_CHECK(idx >= 0 && tab.selected[(size_t)idx]);
+            }
+
+        // Plain lasso replaces: a fresh band over just gamma leaves one.
+        ctx->MouseMoveToPos(ImVec2(x, gamma.RectFull.Max.y + 30.0f));
+        ctx->MouseDown(0);
+        ctx->MouseMoveToPos(ImVec2(x, gamma.RectFull.GetCenter().y));
+        ctx->Yield(2);
+        ctx->MouseUp(0);
+        ctx->Yield(2);
+        IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 1);
+
+        // A plain click in empty space clears the selection.
+        ctx->MouseMoveToPos(ImVec2(x, gamma.RectFull.Max.y + 30.0f));
+        ctx->MouseClick(0);
+        ctx->Yield(2);
+        IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 0);
+    };
+
     t = IM_REGISTER_TEST(e, "explorer", "shortcut_bar_pin_jump_clear");
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;

@@ -21,6 +21,7 @@
 #include "misc/cpp/imgui_stdlib.h"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace ui
@@ -434,6 +435,27 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         // refresh -- bring that into view instead, the way Explorer does.
         if (tab.focused >= 0) v.scrollToEntry = tab.focused;
         else ImGui::SetScrollY(0.0f);
+        // A reload replaces the rows the lasso was drawn over; cancel it.
+        v.lassoPending = v.lassoActive = false;
+        }
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Grow the lasso rectangle from its anchor to the mouse, and promote a
+    // pending press to an active lasso once the mouse has moved. A plain
+    // lasso replaces the selection; Ctrl/Shift adds to it.
+    ImRect lassoRect;
+    if (v.lassoPending || v.lassoActive)
+        {
+        const ImVec2 m = io.MousePos;
+        lassoRect = ImRect(ImVec2(std::min(v.lassoAnchor.x, m.x), std::min(v.lassoAnchor.y, m.y)),
+                           ImVec2(std::max(v.lassoAnchor.x, m.x), std::max(v.lassoAnchor.y, m.y)));
+        if (v.lassoPending && (std::fabs(m.x - v.lassoAnchor.x) + std::fabs(m.y - v.lassoAnchor.y)) > 4.0f)
+            {
+            v.lassoPending = false;
+            v.lassoActive = true;
+            if (!v.lassoAdditive) app::ClearSelection(tab);
+            }
         }
 
     const ImVec4 selectedBg = ImGui::ColorConvertU32ToFloat4(WithAlpha(CurrentPalette().accent, 70));
@@ -484,6 +506,17 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             const bool clicked = ImGui::Selectable(label.c_str(), isSelected,
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap);
             const bool rowHoveredNow = ImGui::IsItemHovered();
+            // Rubber-band membership: the selectable spans all columns, so
+            // its rect is the whole row. A row the lasso touches is selected;
+            // in additive mode the pre-lasso selection is kept too. Applied
+            // here, one frame before the highlight, which reads smoothly.
+            if (v.lassoActive)
+                {
+                const ImRect rowRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+                const bool inLasso = lassoRect.Overlaps(rowRect);
+                const bool base = entryIndex < (int)v.lassoBase.size() && v.lassoBase[(size_t)entryIndex];
+                tab.selected[(size_t)entryIndex] = (v.lassoAdditive ? (base || inLasso) : inLasso) ? 1 : 0;
+                }
             if (!tab.path.empty()) FileDragSource(state, ui, tab, entryIndex);
             if (e.isDirectory && FileDropTarget(state, ui, e.path)) ui.rowDropHovered = true;
 
@@ -524,9 +557,29 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::PopStyleColor(3);
 
+    // Draw the rubber-band over the rows, clamped to the list body so it does
+    // not paint over the frozen header, and end it on release.
+    if (v.lassoActive)
+        {
+        ImRect band = lassoRect;
+        band.ClipWith(ImGui::GetCurrentWindow()->ClipRect);
+        if (band.Min.x < band.Max.x && band.Min.y < band.Max.y)
+            {
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            dl->AddRectFilled(band.Min, band.Max, WithAlpha(CurrentPalette().accent, 40));
+            dl->AddRect(band.Min, band.Max, WithAlpha(CurrentPalette().accent, 180));
+            }
+        }
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && (v.lassoActive || v.lassoPending))
+        {
+        // A pending lasso that never moved was a plain background click, so
+        // it clears the selection; an active one keeps what it gathered.
+        if (v.lassoPending && !v.lassoActive) app::ClearSelection(tab);
+        v.lassoPending = v.lassoActive = false;
+        }
+
     // Resolve clicks after the loop so selection changes cannot shift rows
     // mid-iteration.
-    ImGuiIO& io = ImGui::GetIO();
     if (pendingContext >= 0)
         {
         const int entryIndex = tab.visible[(size_t)pendingContext];
@@ -550,7 +603,17 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
     else if (ImGui::IsWindowHovered() && !rowHovered && !ImGui::IsAnyItemHovered() && !ImGui::IsDragDropActive())
         {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) app::ClearSelection(tab);
+        // Press in empty space begins a rubber-band; it stays pending (and
+        // the selection untouched) until the mouse moves, so a plain click
+        // still just clears the selection on release.
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+            v.lassoPending = true;
+            v.lassoActive = false;
+            v.lassoAnchor = io.MousePos;
+            v.lassoAdditive = io.KeyCtrl || io.KeyShift;
+            v.lassoBase = tab.selected;
+            }
         if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) ImGui::OpenPopup("BackgroundContext");
         }
 
