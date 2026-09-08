@@ -124,12 +124,35 @@ function Remove-Verb {
     }
 }
 
+# Point a class's "open" verb -- what apps request with
+# ShellExecute("open", folder) -- at Davesplorer, and blank its DDE entry so
+# the folder is not instead handed to the running desktop Explorer. Setting
+# the default verb alone is not enough: most apps ask for "open" by name.
+function Set-OpenVerb {
+    param([string]$ClassKey)
+    $open = "$classes\$ClassKey\shell\open"
+    New-Item -Path "$open\command" -Force | Out-Null
+    Set-ItemProperty -Path "$open\command" -Name '(default)' -Value "`"$ExePath`" `"%1`""
+    New-Item -Path "$open\ddeexec" -Force | Out-Null
+    Set-ItemProperty -Path "$open\ddeexec" -Name '(default)' -Value ''
+}
+
+function Remove-OpenVerb {
+    param([string]$ClassKey)
+    $open = "$classes\$ClassKey\shell\open"
+    # Only our override lives in HKCU; removing it uncovers the built-in
+    # Explorer open verb from HKLM again.
+    if (Test-Path $open) { Remove-Item -Path $open -Recurse -Force }
+}
+
 if ($Unregister) {
     # The interceptor lives in HKLM; if it is present, this needs elevation.
     if ((Test-Path $ifeoKey) -and -not (Assert-AdminOrElevate)) { return }
     Remove-Verb 'Directory'
     Remove-Verb 'Directory\Background'
     Remove-Verb 'Drive'
+    Remove-OpenVerb 'Directory'
+    Remove-OpenVerb 'Drive'
     if (Test-Path $explorerClsid) { Remove-Item -Path $explorerClsid -Recurse -Force }
     if (Test-Path $ifeoKey) {
         Remove-ItemProperty -Path $ifeoKey -Name 'Debugger' -ErrorAction SilentlyContinue
@@ -150,9 +173,12 @@ Write-Host "Context menu: 'Open in Davesplorer' on folders, drives and folder ba
 
 if ($Default) {
     foreach ($class in 'Directory', 'Drive') {
+        # The default verb governs double-click; the open verb governs the
+        # explicit ShellExecute("open", folder) that apps use. Set both.
         Set-ItemProperty -Path "$classes\$class\shell" -Name '(default)' -Value $verb
+        Set-OpenVerb $class
     }
-    Write-Host 'Default: folders and drives now open in Davesplorer.'
+    Write-Host 'Default: folders and drives now open in Davesplorer (double-click and app "open folder").'
 }
 
 if ($WinE) {
