@@ -156,8 +156,10 @@ add_library(dsp_ui STATIC
     src/ui/MainWindow.cpp
     src/ui/NavPane.cpp
     src/ui/FilesPane.cpp
+    src/ui/FileGrid.cpp
     src/ui/ImageView.cpp
     src/ui/Textures.cpp
+    src/ui/Thumbnails.cpp
     src/ui/Dialogs.cpp)
 target_link_libraries(dsp_ui PUBLIC dsp_app imgui)
 

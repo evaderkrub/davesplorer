@@ -1,6 +1,7 @@
 // One open location: its listing, what is selected, and where it has been.
 #pragma once
 
+#include "app/Settings.h"
 #include "platform/FileSystem.h"
 
 #include <cstdint>
@@ -41,6 +42,7 @@ struct Tab
 
     std::string filter;                       // search box text
     SortSpec sort;
+    ViewMode viewMode = ViewMode::Details;    // starts from the setting; each view can differ
     std::string error;                        // last listing failure, shown in place of the list
     bool needsReload = true;
     std::string selectOnLoad;                 // entry to select once the next listing arrives

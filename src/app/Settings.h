@@ -11,6 +11,16 @@ namespace app
 // Slots on the shortcut bar across the top of the window.
 inline constexpr int kShortcutSlots = 10;
 
+// How a folder's contents are laid out.
+enum class ViewMode
+{
+    Details = 0,      // the table: name, date, type, size
+    Thumbnails = 1,   // a grid of pictures (images) and big icons (everything else)
+};
+
+// Thumbnail edge lengths the View menu offers, in unscaled pixels.
+inline constexpr int kThumbnailSizes[] = { 64, 96, 128, 192 };
+
 struct Settings
 {
     // One folder per slot; empty string means the slot is unassigned.
@@ -24,7 +34,9 @@ struct Settings
     bool  showShortcutBar = true;
     bool  showStatusBar = true;
     bool  showDetailsPane = false;
-    bool  openImagesInApp = true;  // double-click on an image: the built-in viewer, not the shell
+    bool  openImagesInApp = true;  // double-click on an image: the built-in viewer instead of the shell
+    ViewMode viewMode = ViewMode::Details;   // what a new view starts as
+    int   thumbnailSize = 96;      // unscaled pixels, one of kThumbnailSizes
     std::string startPath;         // where the first tab opens; "" is This PC
     bool  rememberLastPath = true;
 

@@ -106,6 +106,7 @@ int OpenTab(AppState& state, const std::string& path)
 {
     Tab tab;
     tab.id = state.nextTabId++;
+    tab.viewMode = state.settings.viewMode;
     std::string error;
     if (!NavigateTo(tab, path, error)) NavigateTo(tab, "", error);
     state.tabs.push_back(std::move(tab));

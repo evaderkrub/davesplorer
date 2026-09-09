@@ -37,6 +37,10 @@ struct ViewUi
     uint64_t seenGeneration = 0;   // last listing the table scrolled to top for
     int      scrollToEntry = -1;   // keyboard focus moved off-screen
 
+    // Thumbnail grid geometry from the last draw, for the arrow keys.
+    int gridColumns = 1;
+    int gridRowsVisible = 1;
+
     bool    shown = false;         // Begin() has run at least once
     bool    wantFocus = false;     // bring the window (and its dock tab) to front
     ImGuiID dockId = 0;            // where the window sat last frame, 0 when floating

@@ -18,6 +18,7 @@
 #include "ui/MainWindow.h"
 #include "ui/Textures.h"
 #include "ui/Theme.h"
+#include "ui/Thumbnails.h"
 #include "ui/UiState.h"
 
 #include "imgui.h"
@@ -895,6 +896,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
+        fx.state.settings.openImagesInApp = true;
         WritePng(app::JoinPath(fx.root, "pic1.png"));
         WritePng(app::JoinPath(fx.root, "pic2.png"));
         app::Refresh(fx.state.active());
@@ -941,6 +943,7 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK(fx.state.fileViews.empty());
         IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
         IM_CHECK_EQ(fx.ui.activeFileView, -1);
+        fx.state.settings.openImagesInApp = false;
     };
 
     // A file with an image extension that is not an image: the viewer
@@ -949,6 +952,7 @@ void RegisterTests(ImGuiTestEngine* e)
     t->TestFunc = [](ImGuiTestContext* ctx) {
         Fixture& fx = *g_fx;
         GoToScratch(ctx, fx);
+        fx.state.settings.openImagesInApp = true;
         RefActiveView(ctx, fx);
         ctx->ItemDoubleClick("**/###gamma.png");
         ctx->Yield(3);
@@ -959,6 +963,7 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
         ctx->Yield(3);
         IM_CHECK(fx.state.fileViews.empty());
+        fx.state.settings.openImagesInApp = false;
     };
 
     // With the preference off, double-click leaves images to the shell, but
@@ -980,6 +985,83 @@ void RegisterTests(ImGuiTestEngine* e)
         IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
         IM_CHECK_STR_EQ(app::PathName(fx.state.fileViews[0].path).c_str(), "pic1.png");
         fx.state.settings.openImagesInApp = true;
+    };
+
+    // The thumbnails view: the same items as a grid, a real thumbnail for
+    // an image (decoded on the worker thread), click selects, arrows move
+    // within a row, double-click on a folder navigates, and the choice is
+    // remembered as the default for new views.
+    t = IM_REGISTER_TEST(e, "explorer", "thumbnails_view_grid");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        WritePng(app::JoinPath(fx.root, "pic1.png"));
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Thumbnails");
+        ctx->Yield(3);
+        IM_CHECK(fx.state.active().viewMode == app::ViewMode::Thumbnails);
+        IM_CHECK(fx.state.settings.viewMode == app::ViewMode::Thumbnails);
+        IM_CHECK_GT(fx.ui.view(fx.state.active().id).gridColumns, 1);
+
+        // Sorted: sub, alpha.txt, beta.md, gamma.png, pic1.png. Click one,
+        // step right with the arrow key.
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###alpha.txt");
+        ctx->Yield(2);
+        IM_CHECK_EQ(app::SelectedCount(fx.state.active()), 1);
+        IM_CHECK_STR_EQ(fx.state.active().entries[(size_t)fx.state.active().focused].name.c_str(), "alpha.txt");
+        ctx->KeyPress(ImGuiKey_RightArrow);
+        ctx->Yield(2);
+        IM_CHECK_STR_EQ(fx.state.active().entries[(size_t)fx.state.active().focused].name.c_str(), "beta.md");
+
+        // The image's thumbnail arrives from the decoder thread.
+        const app::Tab& tab = fx.state.active();
+        int picIndex = -1;
+        for (int i = 0; i < (int)tab.entries.size(); ++i)
+            if (tab.entries[(size_t)i].name == "pic1.png") picIndex = i;
+        IM_CHECK(picIndex >= 0);
+        const platform::FileEntry& pic = tab.entries[(size_t)picIndex];
+        const ui::thumbnails::Thumb* thumb = nullptr;
+        for (int i = 0; i < 600 && !thumb; ++i)
+            {
+            ctx->Yield();
+            thumb = ui::thumbnails::Get(pic.path, pic.modified);
+            }
+        IM_CHECK(thumb != nullptr);
+        IM_CHECK(thumb->texture != nullptr);
+        IM_CHECK_EQ(thumb->width, 2);
+        IM_CHECK_EQ(thumb->sourceWidth, 2);
+        // The garbage "png" ends as a failed thumbnail, not a crash.
+        int badIndex = -1;
+        for (int i = 0; i < (int)tab.entries.size(); ++i)
+            if (tab.entries[(size_t)i].name == "gamma.png") badIndex = i;
+        const platform::FileEntry& bad = tab.entries[(size_t)badIndex];
+        const ui::thumbnails::Thumb* badThumb = nullptr;
+        for (int i = 0; i < 600 && !badThumb; ++i)
+            {
+            ctx->Yield();
+            badThumb = ui::thumbnails::Get(bad.path, bad.modified);
+            }
+        IM_CHECK(badThumb != nullptr);
+        IM_CHECK(badThumb->failed);
+
+        // Double-click on a folder cell navigates into it.
+        ctx->ItemDoubleClick("**/###sub");
+        ctx->Yield(3);
+        IM_CHECK_STR_EQ(app::PathName(fx.state.active().path).c_str(), "sub");
+        // A new view starts in the remembered mode.
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_T);
+        ctx->Yield(3);
+        IM_CHECK(fx.state.active().viewMode == app::ViewMode::Thumbnails);
+
+        ctx->SetRef(ui::kHostWindow);
+        ctx->MenuClick("View/Details");
+        ctx->Yield(2);
+        IM_CHECK(fx.state.active().viewMode == app::ViewMode::Details);
+        IM_CHECK(fx.state.settings.viewMode == app::ViewMode::Details);
     };
 }
 
@@ -1066,6 +1148,7 @@ int main(int argc, char** argv)
         std::printf("%-8s %s/%s\n", status, test->Category, test->Name);
         }
 
+    ui::thumbnails::Shutdown();
     ui::textures::ReleaseAll();
     ImGuiTestEngine_Stop(engine);
     ImGui::DestroyContext();

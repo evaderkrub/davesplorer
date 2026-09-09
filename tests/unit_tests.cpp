@@ -767,11 +767,28 @@ void TestImage()
     CHECK_EQ(FindFileView(state, png), -1);
     CHECK_EQ(FindFileView(state, siblings[0]), 0);
 
-    // The preference round-trips through settings.
+    // The preferences round-trip through settings; a thumbnail size the
+    // menu does not offer is ignored.
     Settings s;
+    CHECK(s.openImagesInApp);
     ApplySettingLine(s, "open_images_in_app", "0");
     CHECK(!s.openImagesInApp);
     CHECK(SerializeSettings(s).find("open_images_in_app=0") != std::string::npos);
+    CHECK(s.viewMode == ViewMode::Details);
+    ApplySettingLine(s, "view_mode", "1");
+    CHECK(s.viewMode == ViewMode::Thumbnails);
+    ApplySettingLine(s, "thumbnail_size", "7");
+    CHECK_EQ(s.thumbnailSize, 96);
+    ApplySettingLine(s, "thumbnail_size", "128");
+    CHECK_EQ(s.thumbnailSize, 128);
+    CHECK(SerializeSettings(s).find("view_mode=1") != std::string::npos);
+    CHECK(SerializeSettings(s).find("thumbnail_size=128") != std::string::npos);
+
+    // A new tab starts in the remembered mode.
+    AppState remembered;
+    remembered.settings.viewMode = ViewMode::Thumbnails;
+    OpenTab(remembered, dir.path);
+    CHECK(remembered.active().viewMode == ViewMode::Thumbnails);
 }
 
 void TestAppState()

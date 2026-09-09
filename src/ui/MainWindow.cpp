@@ -3,6 +3,7 @@
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Textures.h"
 #include "ui/Theme.h"
+#include "ui/Thumbnails.h"
 #include "ui/Widgets.h"
 
 #include "app/FileOps.h"
@@ -14,6 +15,7 @@
 #include "imgui.h"
 #include "imgui_internal.h"
 
+#include <iterator>
 #include <vector>
 
 namespace ui
@@ -254,6 +256,21 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
         if (ImGui::MenuItem("Split view right", "Ctrl+Shift+Right")) RequestSplitView(ui, tab.id, ImGuiDir_Right);
         if (ImGui::MenuItem("Split view down", "Ctrl+Shift+Down")) RequestSplitView(ui, tab.id, ImGuiDir_Down);
         ImGui::Separator();
+        // Layout of this view; the choice also becomes the default for new
+        // views, as in Explorer.
+        if (ImGui::MenuItem("Details", nullptr, tab.viewMode == app::ViewMode::Details))
+            tab.viewMode = s.viewMode = app::ViewMode::Details;
+        if (ImGui::MenuItem("Thumbnails", nullptr, tab.viewMode == app::ViewMode::Thumbnails))
+            tab.viewMode = s.viewMode = app::ViewMode::Thumbnails;
+        if (ImGui::BeginMenu("Thumbnail size"))
+            {
+            const char* names[] = { "Small", "Medium", "Large", "Extra large" };
+            for (size_t i = 0; i < std::size(app::kThumbnailSizes); ++i)
+                if (ImGui::MenuItem(names[i], nullptr, s.thumbnailSize == app::kThumbnailSizes[i]))
+                    s.thumbnailSize = app::kThumbnailSizes[i];
+            ImGui::EndMenu();
+            }
+        ImGui::Separator();
         ImGui::MenuItem("Navigation pane", nullptr, &s.showNavPane);
         ImGui::MenuItem("Shortcut bar", nullptr, &s.showShortcutBar);
         ImGui::MenuItem("Status bar", nullptr, &s.showStatusBar);
@@ -392,6 +409,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
 
 void DrawFrame(app::AppState& state, UiState& ui)
 {
+    thumbnails::Pump();
     textures::Pump();
     BeginDragDropFrame(state, ui);
 

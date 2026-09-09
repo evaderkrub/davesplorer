@@ -2,6 +2,7 @@
 // search, file table and status bar.
 #include "ui/MainWindow.h"
 #include "ui/DragDrop.h"
+#include "ui/FileList.h"
 #include "ui/Fonts.h"
 #include "ui/IconsMaterialDesign.h"
 #include "ui/Theme.h"
@@ -42,10 +43,8 @@ void Navigate(UiState& ui, app::Tab& tab, const std::string& path)
     if (!app::NavigateTo(tab, path, error)) ShowError(ui, error);
 }
 
-// Enter or double-click on one entry: a folder navigates, an image opens
-// in the built-in viewer (when that is on), anything else goes to the
-// program the shell associates with it. Opening a file view leaves
-// state.tabs alone, so callers' tab references stay valid.
+} // namespace
+
 bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryIndex, std::string& error)
 {
     const app::Tab& tab = state.tabs[(size_t)tabIndex];
@@ -58,6 +57,9 @@ bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryInd
         }
     return app::OpenEntry(state, state.tabs[(size_t)tabIndex], entryIndex, error);
 }
+
+namespace
+{
 
 // Enter or double-click on the selection. Takes the tab by index because
 // opening a view reallocates state.tabs.
@@ -232,12 +234,13 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::SameLine();
 
-    // Right-hand cluster: new view, split right, split down. Measured from
-    // the real icon widths so a narrow view does not push them off the edge.
+    // Right-hand cluster: view mode, new view, split right, split down.
+    // Measured from the real icon widths so a narrow view does not push
+    // them off the edge.
     const ImGuiStyle& style = ImGui::GetStyle();
     auto buttonW = [&](const char* icon) { return ImGui::CalcTextSize(icon).x + style.FramePadding.x * 2.0f; };
-    const float cluster = buttonW(ICON_MD_ADD) + buttonW(ICON_MD_VERTICAL_SPLIT) + buttonW(ICON_MD_HORIZONTAL_SPLIT) +
-                          style.ItemSpacing.x * 3.0f;
+    const float cluster = buttonW(ICON_MD_GRID_VIEW) + buttonW(ICON_MD_ADD) + buttonW(ICON_MD_VERTICAL_SPLIT) +
+                          buttonW(ICON_MD_HORIZONTAL_SPLIT) + style.ItemSpacing.x * 4.0f;
     const float avail = ImGui::GetContentRegionAvail().x - cluster - style.ItemSpacing.x;
     const float searchWidth = std::clamp(avail * 0.25f, 90.0f, 320.0f);
     const float addressWidth = std::max(avail - searchWidth, 60.0f);
@@ -259,6 +262,16 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::SameLine();
 
+    // The toggle sets the default for new views too, as Explorer's view
+    // choice sticks.
+    const bool thumbs = tab.viewMode == app::ViewMode::Thumbnails;
+    if (IconButton("ViewMode", thumbs ? ICON_MD_VIEW_LIST : ICON_MD_GRID_VIEW, thumbs ? "Details view" : "Thumbnails view"))
+        {
+        tab.viewMode = thumbs ? app::ViewMode::Details : app::ViewMode::Thumbnails;
+        state.settings.viewMode = tab.viewMode;
+        }
+    ImGui::SameLine();
+
     const std::string path = tab.path;
     const int id = tab.id;
     if (IconButton("NewTab", ICON_MD_ADD, "Open this folder in a new view (Ctrl+T)"))
@@ -272,6 +285,8 @@ bool DrawToolbar(app::AppState& state, UiState& ui, int tabIndex)
     if (IconButton("SplitDown", ICON_MD_HORIZONTAL_SPLIT, "Split: new view below")) RequestSplitView(ui, id, ImGuiDir_Down);
     return true;
 }
+
+} // namespace
 
 void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
 {
@@ -361,6 +376,138 @@ void DrawBackgroundContextMenu(app::AppState& state, UiState& ui, app::Tab& tab)
         }
 }
 
+void NoticeNewListing(app::Tab& tab, ViewUi& v)
+{
+    if (v.seenGeneration == tab.listingGeneration) return;
+    v.seenGeneration = tab.listingGeneration;
+    // A new listing normally starts at the top, but if it arrived with a
+    // focused item -- a command-line /select, or a file kept across a
+    // refresh -- bring that into view instead, the way Explorer does.
+    if (tab.focused >= 0) v.scrollToEntry = tab.focused;
+    else ImGui::SetScrollY(0.0f);
+    // A reload replaces the items the lasso was drawn over; cancel it.
+    v.lassoPending = v.lassoActive = false;
+}
+
+ImRect UpdateLasso(app::Tab& tab, ViewUi& v)
+{
+    ImRect rect;
+    if (!v.lassoPending && !v.lassoActive) return rect;
+    // Grow the rectangle from its anchor to the mouse, and promote a
+    // pending press to an active lasso once the mouse has moved. A plain
+    // lasso replaces the selection; Ctrl/Shift adds to it.
+    const ImVec2 m = ImGui::GetIO().MousePos;
+    rect = ImRect(ImVec2(std::min(v.lassoAnchor.x, m.x), std::min(v.lassoAnchor.y, m.y)),
+                  ImVec2(std::max(v.lassoAnchor.x, m.x), std::max(v.lassoAnchor.y, m.y)));
+    if (v.lassoPending && (std::fabs(m.x - v.lassoAnchor.x) + std::fabs(m.y - v.lassoAnchor.y)) > 4.0f)
+        {
+        v.lassoPending = false;
+        v.lassoActive = true;
+        if (!v.lassoAdditive) app::ClearSelection(tab);
+        }
+    return rect;
+}
+
+void ApplyLassoToItem(app::Tab& tab, ViewUi& v, int entryIndex, const ImRect& lasso, const ImRect& item, bool verticalOnly)
+{
+    if (!v.lassoActive) return;
+    // Applied here, one frame before the highlight, which reads smoothly.
+    // In additive mode the pre-lasso selection is kept too.
+    const bool inLasso = verticalOnly ? (lasso.Min.y <= item.Max.y && lasso.Max.y >= item.Min.y)
+                                      : lasso.Overlaps(item);
+    const bool base = entryIndex < (int)v.lassoBase.size() && v.lassoBase[(size_t)entryIndex];
+    tab.selected[(size_t)entryIndex] = (v.lassoAdditive ? (base || inLasso) : inLasso) ? 1 : 0;
+}
+
+void DrawLassoBand(const ViewUi& v, const ImRect& lasso)
+{
+    if (!v.lassoActive) return;
+    // Clamped to the scrolling body so it does not paint over a frozen
+    // header.
+    ImRect band = lasso;
+    band.ClipWith(ImGui::GetCurrentWindow()->ClipRect);
+    if (band.Min.x >= band.Max.x || band.Min.y >= band.Max.y) return;
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(band.Min, band.Max, WithAlpha(CurrentPalette().accent, 40));
+    dl->AddRect(band.Min, band.Max, WithAlpha(CurrentPalette().accent, 180));
+}
+
+void EndLassoOnRelease(app::Tab& tab, ViewUi& v)
+{
+    if (!ImGui::IsMouseReleased(ImGuiMouseButton_Left) || !(v.lassoActive || v.lassoPending)) return;
+    // A pending lasso that never moved was a plain background click, so
+    // it clears the selection; an active one keeps what it gathered.
+    if (v.lassoPending && !v.lassoActive) app::ClearSelection(tab);
+    v.lassoPending = v.lassoActive = false;
+}
+
+void ResolveListClicks(app::AppState& state, UiState& ui, int tabIndex, const ListClicks& clicks)
+{
+    app::Tab& tab = state.tabs[(size_t)tabIndex];
+    ViewUi& v = ui.view(tab.id);
+    ImGuiIO& io = ImGui::GetIO();
+    if (clicks.pendingContext >= 0)
+        {
+        const int entryIndex = tab.visible[(size_t)clicks.pendingContext];
+        if (!(entryIndex < (int)tab.selected.size() && tab.selected[(size_t)entryIndex]))
+            app::ClickSelect(tab, clicks.pendingContext, false, false);
+        tab.focused = entryIndex;
+        ImGui::OpenPopup("RowContext");
+        }
+    else if (clicks.pendingClick >= 0)
+        {
+        if (clicks.pendingDouble)
+            {
+            app::ClickSelect(tab, clicks.pendingClick, false, false);
+            std::string error;
+            if (!OpenEntryHere(state, ui, tabIndex, tab.visible[(size_t)clicks.pendingClick], error)) ShowError(ui, error);
+            }
+        else
+            {
+            app::ClickSelect(tab, clicks.pendingClick, io.KeyCtrl, io.KeyShift);
+            }
+        }
+    else if (ImGui::IsWindowHovered() && !clicks.itemHovered && !ImGui::IsAnyItemHovered() && !ImGui::IsDragDropActive())
+        {
+        // Press in empty space begins a rubber-band; it stays pending (and
+        // the selection untouched) until the mouse moves, so a plain click
+        // still just clears the selection on release.
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            {
+            v.lassoPending = true;
+            v.lassoActive = false;
+            v.lassoAnchor = io.MousePos;
+            v.lassoAdditive = io.KeyCtrl || io.KeyShift;
+            v.lassoBase = tab.selected;
+            }
+        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) ImGui::OpenPopup("BackgroundContext");
+        }
+}
+
+void DrawListPopups(app::AppState& state, UiState& ui, int tabIndex)
+{
+    if (ImGui::BeginPopup("RowContext"))
+        {
+        DrawRowContextMenu(state, ui, tabIndex);
+        ImGui::EndPopup();
+        }
+    if (ImGui::BeginPopup("BackgroundContext"))
+        {
+        DrawBackgroundContextMenu(state, ui, state.tabs[(size_t)tabIndex]);
+        ImGui::EndPopup();
+        }
+}
+
+std::string ShownName(const app::Tab& tab, const platform::FileEntry& e, const app::Settings& settings)
+{
+    if (!settings.showExtensions && !e.isDirectory && !e.extension.empty() && !tab.path.empty())
+        return e.name.substr(0, e.name.size() - e.extension.size() - 1);
+    return e.name;
+}
+
+namespace
+{
+
 // Keys that act on the list. Only while this view (or a child of it) has
 // focus, nobody is typing, and no popup is up.
 void HandleListKeys(app::AppState& state, UiState& ui, int tabIndex)
@@ -374,10 +521,17 @@ void HandleListKeys(app::AppState& state, UiState& ui, int tabIndex)
     const bool shift = io.KeyShift, ctrl = io.KeyCtrl;
     const int before = tab.focused;
 
-    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))  app::MoveFocus(tab, 1, false, shift, ctrl);
-    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))    app::MoveFocus(tab, -1, false, shift, ctrl);
-    if (ImGui::IsKeyPressed(ImGuiKey_PageDown))   app::MoveFocus(tab, 15, false, shift, ctrl);
-    if (ImGui::IsKeyPressed(ImGuiKey_PageUp))     app::MoveFocus(tab, -15, false, shift, ctrl);
+    // In the grid a row is `cols` items, so Up/Down step by that and
+    // Left/Right by one; the table has one item per row.
+    const bool grid = tab.viewMode == app::ViewMode::Thumbnails;
+    const int cols = grid ? std::max(1, v.gridColumns) : 1;
+    const int page = grid ? cols * std::max(1, v.gridRowsVisible) : 15;
+    if (ImGui::IsKeyPressed(ImGuiKey_DownArrow))  app::MoveFocus(tab, cols, false, shift, ctrl);
+    if (ImGui::IsKeyPressed(ImGuiKey_UpArrow))    app::MoveFocus(tab, -cols, false, shift, ctrl);
+    if (grid && ImGui::IsKeyPressed(ImGuiKey_RightArrow)) app::MoveFocus(tab, 1, false, shift, ctrl);
+    if (grid && ImGui::IsKeyPressed(ImGuiKey_LeftArrow))  app::MoveFocus(tab, -1, false, shift, ctrl);
+    if (ImGui::IsKeyPressed(ImGuiKey_PageDown))   app::MoveFocus(tab, page, false, shift, ctrl);
+    if (ImGui::IsKeyPressed(ImGuiKey_PageUp))     app::MoveFocus(tab, -page, false, shift, ctrl);
     if (ImGui::IsKeyPressed(ImGuiKey_Home))       app::MoveFocus(tab, -1, true, shift, ctrl);
     if (ImGui::IsKeyPressed(ImGuiKey_End))        app::MoveFocus(tab, 1, true, shift, ctrl);
     if (tab.focused != before) v.scrollToEntry = tab.focused;
@@ -460,36 +614,8 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         specs->SpecsDirty = false;
         }
 
-    if (v.seenGeneration != tab.listingGeneration)
-        {
-        v.seenGeneration = tab.listingGeneration;
-        // A new listing normally starts at the top, but if it arrived with a
-        // focused item -- a command-line /select, or a file kept across a
-        // refresh -- bring that into view instead, the way Explorer does.
-        if (tab.focused >= 0) v.scrollToEntry = tab.focused;
-        else ImGui::SetScrollY(0.0f);
-        // A reload replaces the rows the lasso was drawn over; cancel it.
-        v.lassoPending = v.lassoActive = false;
-        }
-
-    ImGuiIO& io = ImGui::GetIO();
-
-    // Grow the lasso rectangle from its anchor to the mouse, and promote a
-    // pending press to an active lasso once the mouse has moved. A plain
-    // lasso replaces the selection; Ctrl/Shift adds to it.
-    ImRect lassoRect;
-    if (v.lassoPending || v.lassoActive)
-        {
-        const ImVec2 m = io.MousePos;
-        lassoRect = ImRect(ImVec2(std::min(v.lassoAnchor.x, m.x), std::min(v.lassoAnchor.y, m.y)),
-                           ImVec2(std::max(v.lassoAnchor.x, m.x), std::max(v.lassoAnchor.y, m.y)));
-        if (v.lassoPending && (std::fabs(m.x - v.lassoAnchor.x) + std::fabs(m.y - v.lassoAnchor.y)) > 4.0f)
-            {
-            v.lassoPending = false;
-            v.lassoActive = true;
-            if (!v.lassoAdditive) app::ClearSelection(tab);
-            }
-        }
+    NoticeNewListing(tab, v);
+    const ImRect lassoRect = UpdateLasso(tab, v);
 
     const ImVec4 selectedBg = ImGui::ColorConvertU32ToFloat4(WithAlpha(CurrentPalette().accent, 70));
     const ImVec4 hoveredBg  = ImGui::ColorConvertU32ToFloat4(WithAlpha(CurrentPalette().accent, 40));
@@ -497,10 +623,7 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, hoveredBg);
     ImGui::PushStyleColor(ImGuiCol_HeaderActive, selectedBg);
 
-    bool rowHovered = false;
-    int pendingClick = -1;
-    bool pendingDouble = false;
-    int pendingContext = -1;
+    ListClicks clicks;
 
     ImGuiListClipper clipper;
     clipper.Begin((int)tab.visible.size());
@@ -520,9 +643,7 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
 
-            std::string shownName = e.name;
-            if (!settings.showExtensions && !e.isDirectory && !e.extension.empty() && tab.path.size() > 0)
-                shownName = e.name.substr(0, e.name.size() - e.extension.size() - 1);
+            const std::string shownName = ShownName(tab, e, settings);
 
             if (v.scrollToEntry == entryIndex)
                 {
@@ -540,19 +661,11 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap);
             const bool rowHoveredNow = ImGui::IsItemHovered();
             // Rubber-band membership: the selectable spans all columns, so
-            // its rect is the whole row. A row the lasso touches is selected;
-            // in additive mode the pre-lasso selection is kept too. Applied
-            // here, one frame before the highlight, which reads smoothly.
-            if (v.lassoActive)
-                {
-                // Rows read as full-width, so the band selects by vertical
-                // overlap: a drag anywhere down the list (the right margin
-                // included) grabs the rows its height covers.
-                const ImRect rowRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-                const bool inLasso = lassoRect.Min.y <= rowRect.Max.y && lassoRect.Max.y >= rowRect.Min.y;
-                const bool base = entryIndex < (int)v.lassoBase.size() && v.lassoBase[(size_t)entryIndex];
-                tab.selected[(size_t)entryIndex] = (v.lassoAdditive ? (base || inLasso) : inLasso) ? 1 : 0;
-                }
+            // its rect is the whole row, and rows read as full-width, so
+            // the band selects by vertical overlap: a drag anywhere down
+            // the list (the right margin included) grabs the rows its
+            // height covers.
+            ApplyLassoToItem(tab, v, entryIndex, lassoRect, ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()), true);
             if (!tab.path.empty()) FileDragSource(state, ui, tab, entryIndex);
             if (e.isDirectory && FileDropTarget(state, ui, e.path)) ui.rowDropHovered = true;
 
@@ -565,13 +678,13 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             dl->AddText(ImVec2(rowStart.x + iconW + ImGui::GetStyle().ItemInnerSpacing.x, rowStart.y),
                         (e.isHidden || isCut) ? CurrentPalette().textFaint : CurrentPalette().text, shownName.c_str());
 
-            if (rowHoveredNow) rowHovered = true;
+            if (rowHoveredNow) clicks.itemHovered = true;
             if (clicked)
                 {
-                pendingClick = pos;
-                pendingDouble = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+                clicks.pendingClick = pos;
+                clicks.pendingDouble = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
                 }
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) pendingContext = pos;
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) clicks.pendingContext = pos;
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_DelayNormal) && e.isReparsePoint)
                 ImGui::SetTooltip("Link: %s", e.path.c_str());
 
@@ -593,76 +706,10 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
         }
     ImGui::PopStyleColor(3);
 
-    // Draw the rubber-band over the rows, clamped to the list body so it does
-    // not paint over the frozen header, and end it on release.
-    if (v.lassoActive)
-        {
-        ImRect band = lassoRect;
-        band.ClipWith(ImGui::GetCurrentWindow()->ClipRect);
-        if (band.Min.x < band.Max.x && band.Min.y < band.Max.y)
-            {
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            dl->AddRectFilled(band.Min, band.Max, WithAlpha(CurrentPalette().accent, 40));
-            dl->AddRect(band.Min, band.Max, WithAlpha(CurrentPalette().accent, 180));
-            }
-        }
-    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && (v.lassoActive || v.lassoPending))
-        {
-        // A pending lasso that never moved was a plain background click, so
-        // it clears the selection; an active one keeps what it gathered.
-        if (v.lassoPending && !v.lassoActive) app::ClearSelection(tab);
-        v.lassoPending = v.lassoActive = false;
-        }
-
-    // Resolve clicks after the loop so selection changes cannot shift rows
-    // mid-iteration.
-    if (pendingContext >= 0)
-        {
-        const int entryIndex = tab.visible[(size_t)pendingContext];
-        if (!(entryIndex < (int)tab.selected.size() && tab.selected[(size_t)entryIndex]))
-            app::ClickSelect(tab, pendingContext, false, false);
-        tab.focused = entryIndex;
-        ImGui::OpenPopup("RowContext");
-        }
-    else if (pendingClick >= 0)
-        {
-        if (pendingDouble)
-            {
-            app::ClickSelect(tab, pendingClick, false, false);
-            std::string error;
-            if (!OpenEntryHere(state, ui, tabIndex, tab.visible[(size_t)pendingClick], error)) ShowError(ui, error);
-            }
-        else
-            {
-            app::ClickSelect(tab, pendingClick, io.KeyCtrl, io.KeyShift);
-            }
-        }
-    else if (ImGui::IsWindowHovered() && !rowHovered && !ImGui::IsAnyItemHovered() && !ImGui::IsDragDropActive())
-        {
-        // Press in empty space begins a rubber-band; it stays pending (and
-        // the selection untouched) until the mouse moves, so a plain click
-        // still just clears the selection on release.
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-            {
-            v.lassoPending = true;
-            v.lassoActive = false;
-            v.lassoAnchor = io.MousePos;
-            v.lassoAdditive = io.KeyCtrl || io.KeyShift;
-            v.lassoBase = tab.selected;
-            }
-        if (ImGui::IsMouseReleased(ImGuiMouseButton_Right)) ImGui::OpenPopup("BackgroundContext");
-        }
-
-    if (ImGui::BeginPopup("RowContext"))
-        {
-        DrawRowContextMenu(state, ui, tabIndex);
-        ImGui::EndPopup();
-        }
-    if (ImGui::BeginPopup("BackgroundContext"))
-        {
-        DrawBackgroundContextMenu(state, ui, state.tabs[(size_t)tabIndex]);
-        ImGui::EndPopup();
-        }
+    DrawLassoBand(v, lassoRect);
+    EndLassoOnRelease(tab, v);
+    ResolveListClicks(state, ui, tabIndex, clicks);
+    DrawListPopups(state, ui, tabIndex);
     ImGui::EndTable();
 }
 
@@ -745,7 +792,8 @@ void DrawViewContents(app::AppState& state, UiState& ui, int tabIndex)
         }
     else
         {
-        DrawFileTable(state, ui, tabIndex);
+        if (tab.viewMode == app::ViewMode::Thumbnails) DrawThumbnailGrid(state, ui, tabIndex);
+        else DrawFileTable(state, ui, tabIndex);
         // The list background (and any non-folder row) drops into the folder
         // being shown. Done here at the child level, not inside the table:
         // inside BeginTable the clip rect is a narrow per-column region, so
