@@ -102,6 +102,19 @@ registration script and Explorer interceptor apply only to Windows.
   land in the folder under the cursor; dragging out of the window hands the
   items to Windows, so they can be dropped on Explorer, the desktop, or an
   editor.
+- **Image viewer**: double-clicking a PNG, JPEG, BMP, GIF, TGA, PSD, HDR or
+  PNM file opens it in a file view, a dockable window of its own beside the
+  folder view (drag its tab anywhere a folder view can go). It opens fitted
+  to the window; the wheel zooms about the cursor, dragging pans, double-
+  click flips between fit and real pixels, and `+`/`-`/`0`/`1` zoom in, out,
+  fit and 100%. `Left`/`Right` (or the toolbar arrows) step through the
+  other images in the folder. Transparent images sit on a checkerboard.
+  The toolbar also jumps the folder view to the file or opens it with the
+  default program; `Ctrl+W` closes the viewer. **View > Open images in
+  Davesplorer** turns the double-click behaviour off; the context menu's
+  "View in Davesplorer" and "Open with default program" are always there.
+  Very large images are shown reduced (the status bar says so); animated
+  GIFs show their first frame; EXIF rotation is not applied.
 - **Context menus** on items and on the empty area, plus "Show in Windows
   Explorer" and "Open terminal here". Each view's status bar also has New
   folder, Open terminal and Open in Windows Explorer buttons at its right

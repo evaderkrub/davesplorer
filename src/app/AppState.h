@@ -22,6 +22,15 @@ struct Clipboard
     bool cut = false;
 };
 
+// A file shown inside the app rather than handed to another program: an
+// image in the built-in viewer. Its own dockable window, like a folder view,
+// but never the "active tab" that menus and the navigation pane act on.
+struct FileView
+{
+    int         id = 0;          // from the same counter as tabs, so window ids never collide
+    std::string path;
+};
+
 struct AppState
 {
     Settings    settings;
@@ -32,6 +41,8 @@ struct AppState
     std::vector<Tab> tabs;
     int activeTab = 0;
     int nextTabId = 1;
+
+    std::vector<FileView> fileViews;
 
     std::string buildInfo;       // "SDL 3.4.8, MSVC 1950", filled in by the host for the About box
 

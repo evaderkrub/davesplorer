@@ -4,6 +4,7 @@
 #include "app/AppState.h"
 #include "app/FileOps.h"
 #include "app/Format.h"
+#include "app/Image.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
@@ -672,6 +673,107 @@ void TestShortcuts()
     CHECK(reloaded.shortcuts[3].empty());
 }
 
+// A real 2x2 RGBA PNG: red, green / blue, half-transparent white.
+const unsigned char kTinyPng[] = {
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d,
+    0x24, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+    0x1f, 0x0c, 0x81, 0x34, 0x08, 0x34, 0x00, 0x00, 0x49, 0x49, 0x09, 0x78, 0x28, 0xa0, 0xdb, 0x77,
+    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 };
+
+void WriteBytes(const std::string& path, const unsigned char* bytes, size_t count)
+{
+    std::ofstream out(std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())), std::ios::binary);
+    out.write(reinterpret_cast<const char*>(bytes), (std::streamsize)count);
+}
+
+void TestImage()
+{
+    using namespace app;
+    CHECK(IsViewableImage("png"));
+    CHECK(IsViewableImage("jpg"));
+    CHECK(IsViewableImage("gif"));
+    CHECK(!IsViewableImage("webp"));   // stb_image has no webp; the shell gets it
+    CHECK(!IsViewableImage("txt"));
+    CHECK(!IsViewableImage(""));
+
+    TempDir dir("image");
+    const std::string png = JoinPath(dir.path, "tiny.png");
+    WriteBytes(png, kTinyPng, sizeof(kTinyPng));
+
+    DecodedImage img;
+    std::string error;
+    CHECK(DecodeImageFile(png, 0, img, error));
+    CHECK_EQ(img.width, 2);
+    CHECK_EQ(img.height, 2);
+    CHECK_EQ(img.sourceWidth, 2);
+    CHECK(img.hasAlpha);
+    CHECK_EQ(img.rgba.size(), (size_t)16);
+    CHECK_EQ((int)img.rgba[0], 255);    // top-left red
+    CHECK_EQ((int)img.rgba[1], 0);
+    CHECK_EQ((int)img.rgba[5], 255);    // top-right green
+    CHECK_EQ((int)img.rgba[10], 255);   // bottom-left blue
+    CHECK_EQ((int)img.rgba[15], 128);   // bottom-right alpha
+
+    // Reduced to fit a 1-pixel limit: one box average of the four.
+    DecodedImage small;
+    CHECK(DecodeImageFile(png, 1, small, error));
+    CHECK_EQ(small.width, 1);
+    CHECK_EQ(small.height, 1);
+    CHECK_EQ(small.sourceWidth, 2);
+    CHECK_EQ(small.sourceHeight, 2);
+    CHECK_EQ((int)small.rgba[0], 128);
+    CHECK_EQ((int)small.rgba[1], 128);
+    CHECK_EQ((int)small.rgba[2], 128);
+    CHECK_EQ((int)small.rgba[3], 223);
+
+    // Not an image at all.
+    const std::string fake = JoinPath(dir.path, "fake.png");
+    std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(fake.c_str()))) << "not really a png";
+    DecodedImage bad;
+    CHECK(!DecodeImageFile(fake, 0, bad, error));
+    CHECK(!error.empty());
+    CHECK(!DecodeImageFile(JoinPath(dir.path, "missing.png"), 0, bad, error));
+
+    // Siblings: the folder's images in natural name order, nothing else.
+    WriteBytes(JoinPath(dir.path, "img10.png"), kTinyPng, sizeof(kTinyPng));
+    WriteBytes(JoinPath(dir.path, "img2.png"), kTinyPng, sizeof(kTinyPng));
+    WriteBytes(JoinPath(dir.path, "a.jpg"), kTinyPng, sizeof(kTinyPng));
+    std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(JoinPath(dir.path, "notes.txt").c_str()))) << "x";
+    const std::vector<std::string> siblings = ImageSiblings(png);
+    CHECK_EQ(siblings.size(), (size_t)5);
+    if (siblings.size() == 5)
+        {
+        CHECK_EQ(PathName(siblings[0]), "a.jpg");
+        CHECK_EQ(PathName(siblings[1]), "fake.png");
+        CHECK_EQ(PathName(siblings[2]), "img2.png");
+        CHECK_EQ(PathName(siblings[3]), "img10.png");
+        CHECK_EQ(PathName(siblings[4]), "tiny.png");
+        }
+
+    // File views: one per path, ids never clash with folder views.
+    AppState state;
+    OpenTab(state, dir.path);
+    const int first = OpenFileView(state, png);
+    CHECK_EQ(first, 0);
+    CHECK_EQ(OpenFileView(state, png), 0);
+    CHECK_EQ(state.fileViews.size(), (size_t)1);
+    CHECK(state.fileViews[0].id != state.tabs[0].id);
+    OpenFileView(state, siblings[0]);
+    CHECK_EQ(state.fileViews.size(), (size_t)2);
+    CHECK_EQ(FindFileView(state, siblings[0]), 1);
+    CloseFileView(state, 0);
+    CHECK_EQ(state.fileViews.size(), (size_t)1);
+    CHECK_EQ(FindFileView(state, png), -1);
+    CHECK_EQ(FindFileView(state, siblings[0]), 0);
+
+    // The preference round-trips through settings.
+    Settings s;
+    ApplySettingLine(s, "open_images_in_app", "0");
+    CHECK(!s.openImagesInApp);
+    CHECK(SerializeSettings(s).find("open_images_in_app=0") != std::string::npos);
+}
+
 void TestAppState()
 {
     TempDir tmp("state");
@@ -754,6 +856,7 @@ int main()
     TestFileOps();
     TestClipboardAndDrop();
     TestShortcuts();
+    TestImage();
     TestAppState();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures;

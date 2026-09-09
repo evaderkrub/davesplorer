@@ -1,6 +1,7 @@
 #include "ui/MainWindow.h"
 #include "ui/DragDrop.h"
 #include "ui/IconsMaterialDesign.h"
+#include "ui/Textures.h"
 #include "ui/Theme.h"
 #include "ui/Widgets.h"
 
@@ -82,6 +83,11 @@ void BuildDefaultLayout(app::AppState& state, UiState& ui, ImGuiID dockspaceId, 
         {
         ImGui::DockBuilderDockWindow(ViewWindowName(state, tab).c_str(), right);
         ui.view(tab.id).shown = true;   // docked here explicitly; no FirstUseEver hint needed
+        }
+    for (const app::FileView& f : state.fileViews)
+        {
+        ImGui::DockBuilderDockWindow(FileViewWindowName(state, f).c_str(), right);
+        ui.fileView(f.id).shown = true;
         }
     ImGui::DockBuilderFinish(dockspaceId);
     ui.defaultViewDock = right;
@@ -194,8 +200,15 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
             }
         if (ImGui::MenuItem("Close view", "Ctrl+W"))
             {
-            ui.views.erase(tab.id);
-            app::CloseTab(state, state.activeTab);
+            if (ui.activeFileView >= 0)
+                {
+                CloseFileView(state, ui, ui.activeFileView);
+                }
+            else
+                {
+                ui.views.erase(tab.id);
+                app::CloseTab(state, state.activeTab);
+                }
             ImGui::EndMenu();
             ImGui::EndMenuBar();
             return;
@@ -251,6 +264,7 @@ void DrawMenuBar(app::AppState& state, UiState& ui)
             ui.treeChildren.clear();
             }
         ImGui::MenuItem("File name extensions", nullptr, &s.showExtensions);
+        ImGui::MenuItem("Open images in Davesplorer", nullptr, &s.openImagesInApp);
         ImGui::Separator();
         if (ImGui::BeginMenu("Sort by"))
             {
@@ -332,6 +346,12 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
         }
     if (chord(ImGuiMod_Ctrl | ImGuiKey_W))
         {
+        // A focused file view closes itself; otherwise the active folder.
+        if (ui.activeFileView >= 0)
+            {
+            CloseFileView(state, ui, ui.activeFileView);
+            return;
+            }
         ui.views.erase(tab.id);
         app::CloseTab(state, state.activeTab);
         return;
@@ -372,6 +392,7 @@ void HandleGlobalShortcuts(app::AppState& state, UiState& ui)
 
 void DrawFrame(app::AppState& state, UiState& ui)
 {
+    textures::Pump();
     BeginDragDropFrame(state, ui);
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -429,6 +450,13 @@ void DrawFrame(app::AppState& state, UiState& ui)
                 break;
                 }
         }
+
+    // The file views (images in the built-in viewer), the same way.
+    std::vector<int> closingFiles;
+    const int fileCount = (int)state.fileViews.size();
+    for (int i = 0; i < fileCount; ++i)
+        if (DrawFileView(state, ui, i)) closingFiles.push_back(state.fileViews[(size_t)i].id);
+    for (int id : closingFiles) CloseFileView(state, ui, id);
 
     // Dialogs are opened and drawn in the host window so OpenPopup and
     // BeginPopupModal see the same ID stack, whichever pane asked.

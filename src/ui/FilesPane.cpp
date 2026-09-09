@@ -9,6 +9,7 @@
 
 #include "app/FileOps.h"
 #include "app/Format.h"
+#include "app/Image.h"
 #include "app/Listing.h"
 #include "app/Navigation.h"
 #include "app/PathUtil.h"
@@ -41,6 +42,23 @@ void Navigate(UiState& ui, app::Tab& tab, const std::string& path)
     if (!app::NavigateTo(tab, path, error)) ShowError(ui, error);
 }
 
+// Enter or double-click on one entry: a folder navigates, an image opens
+// in the built-in viewer (when that is on), anything else goes to the
+// program the shell associates with it. Opening a file view leaves
+// state.tabs alone, so callers' tab references stay valid.
+bool OpenEntryHere(app::AppState& state, UiState& ui, int tabIndex, int entryIndex, std::string& error)
+{
+    const app::Tab& tab = state.tabs[(size_t)tabIndex];
+    if (entryIndex < 0 || entryIndex >= (int)tab.entries.size()) return false;
+    const platform::FileEntry& e = tab.entries[(size_t)entryIndex];
+    if (!e.isDirectory && state.settings.openImagesInApp && app::IsViewableImage(e.extension))
+        {
+        OpenFileView(state, ui, e.path);
+        return true;
+        }
+    return app::OpenEntry(state, state.tabs[(size_t)tabIndex], entryIndex, error);
+}
+
 // Enter or double-click on the selection. Takes the tab by index because
 // opening a view reallocates state.tabs.
 void OpenSelectedOrFocused(app::AppState& state, UiState& ui, int tabIndex)
@@ -66,7 +84,7 @@ void OpenSelectedOrFocused(app::AppState& state, UiState& ui, int tabIndex)
     }
     std::string error;
     for (int i : targets)
-        if (!app::OpenEntry(state, state.tabs[(size_t)tabIndex], i, error)) ShowError(ui, error);
+        if (!OpenEntryHere(state, ui, tabIndex, i, error)) ShowError(ui, error);
     for (const std::string& folder : extraFolders) OpenView(state, ui, folder);
 }
 
@@ -261,6 +279,7 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
     const bool inFolder = !tab.path.empty();
     const bool haveSelection = app::SelectedCount(tab) > 0;
     const bool focusedIsFolder = tab.focused >= 0 && tab.entries[(size_t)tab.focused].isDirectory;
+    const bool focusedIsImage = tab.focused >= 0 && !focusedIsFolder && app::IsViewableImage(tab.entries[(size_t)tab.focused].extension);
     const std::string focusedPath = tab.focused >= 0 ? tab.entries[(size_t)tab.focused].path : std::string();
     if (ImGui::MenuItem("Open"))
         {
@@ -271,6 +290,15 @@ void DrawRowContextMenu(app::AppState& state, UiState& ui, int tabIndex)
         {
         OpenView(state, ui, focusedPath);
         return;
+        }
+    // The two ways to open an image, both always on offer whatever the
+    // double-click preference says.
+    if (ImGui::MenuItem("View in Davesplorer", nullptr, false, focusedIsImage)) OpenFileView(state, ui, focusedPath);
+    if (ImGui::MenuItem("Open with default program", nullptr, false, tab.focused >= 0 && !focusedIsFolder))
+        {
+        std::string error;
+        for (const std::string& p : app::SelectedPaths(tab))
+            if (!platform::IsDirectory(p) && !platform::OpenWithShell(p, error)) ShowError(ui, error);
         }
     if (ImGui::MenuItem("Show in system file manager"))
         {
@@ -602,7 +630,7 @@ void DrawFileTable(app::AppState& state, UiState& ui, int tabIndex)
             {
             app::ClickSelect(tab, pendingClick, false, false);
             std::string error;
-            if (!app::OpenEntry(state, tab, tab.visible[(size_t)pendingClick], error)) ShowError(ui, error);
+            if (!OpenEntryHere(state, ui, tabIndex, tab.visible[(size_t)pendingClick], error)) ShowError(ui, error);
             }
         else
             {
@@ -783,7 +811,11 @@ bool DrawView(app::AppState& state, UiState& ui, int tabIndex)
         v.dockId = ImGui::GetWindowDockID();
         // The focused view is the one menus, shortcuts and the navigation
         // pane act on.
-        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) state.activeTab = tabIndex;
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+            {
+            state.activeTab = tabIndex;
+            ui.activeFileView = -1;
+            }
         DrawViewContents(state, ui, tabIndex);
         }
     ImGui::End();

@@ -16,6 +16,7 @@
 #include "platform/Strings.h"
 #include "ui/Fonts.h"
 #include "ui/MainWindow.h"
+#include "ui/Textures.h"
 #include "ui/Theme.h"
 #include "ui/UiState.h"
 
@@ -65,6 +66,20 @@ std::string TempRoot(const char* tag)
 void WriteFile(const std::string& path, const char* content)
 {
     std::ofstream(std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str()))) << content;
+}
+
+// A real 2x2 RGBA PNG: red, green / blue, half-transparent white.
+const unsigned char kTinyPng[] = {
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x08, 0x06, 0x00, 0x00, 0x00, 0x72, 0xb6, 0x0d,
+    0x24, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8, 0xcf, 0xc0, 0xf0,
+    0x1f, 0x0c, 0x81, 0x34, 0x08, 0x34, 0x00, 0x00, 0x49, 0x49, 0x09, 0x78, 0x28, 0xa0, 0xdb, 0x77,
+    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82 };
+
+void WritePng(const std::string& path)
+{
+    std::ofstream out(std::filesystem::path(reinterpret_cast<const char8_t*>(path.c_str())), std::ios::binary);
+    out.write(reinterpret_cast<const char*>(kTinyPng), sizeof(kTinyPng));
 }
 
 // The listing for the scratch folder, freshly read from disk.
@@ -872,6 +887,100 @@ void RegisterTests(ImGuiTestEngine* e)
         ctx->Yield(2);
         IM_CHECK_EQ(fx.state.active().visible.size(), (size_t)4);
     };
+
+    // Double-clicking an image opens it in the built-in viewer, docked as a
+    // window of its own; Next/Previous step through the folder's images;
+    // Ctrl+W closes the viewer and leaves the folder view alone.
+    t = IM_REGISTER_TEST(e, "explorer", "image_view_open_step_close");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        WritePng(app::JoinPath(fx.root, "pic1.png"));
+        WritePng(app::JoinPath(fx.root, "pic2.png"));
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###pic1.png");
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
+        const int id = fx.state.fileViews[0].id;
+        const ui::FileViewUi& v = fx.ui.fileView(id);
+        IM_CHECK(v.error.empty());
+        IM_CHECK(v.texture != nullptr);
+        IM_CHECK_EQ(v.width, 2);
+        IM_CHECK_EQ(v.height, 2);
+        IM_CHECK(v.hasAlpha);
+        // gamma.png (the garbage one), pic1.png, pic2.png
+        IM_CHECK_EQ(v.siblings.size(), (size_t)3);
+        IM_CHECK_EQ(v.siblingIndex, 1);
+        IM_CHECK_EQ(fx.ui.activeFileView, id);
+
+        ctx->SetRef(ImGuiTestRef(ui::FileViewWindowId(id)));
+        ctx->ItemClick("**/###Next");
+        ctx->Yield(3);
+        IM_CHECK_STR_EQ(app::PathName(fx.state.fileViews[0].path).c_str(), "pic2.png");
+        IM_CHECK_EQ(v.siblingIndex, 2);
+        IM_CHECK(v.texture != nullptr);
+        ctx->KeyPress(ImGuiKey_LeftArrow);
+        ctx->Yield(3);
+        IM_CHECK_STR_EQ(app::PathName(fx.state.fileViews[0].path).c_str(), "pic1.png");
+
+        // Zoom in from the toolbar leaves fit mode; Fit returns to it.
+        IM_CHECK(v.fit);
+        ctx->ItemClick("**/###ZoomIn");
+        ctx->Yield(2);
+        IM_CHECK(!v.fit);
+        IM_CHECK_GT(v.zoom, 1.0f);
+        ctx->ItemClick("**/###Fit");
+        ctx->Yield(2);
+        IM_CHECK(v.fit);
+
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(3);
+        IM_CHECK(fx.state.fileViews.empty());
+        IM_CHECK_EQ(fx.state.tabs.size(), (size_t)1);
+        IM_CHECK_EQ(fx.ui.activeFileView, -1);
+    };
+
+    // A file with an image extension that is not an image: the viewer
+    // opens and says so, rather than launching anything or crashing.
+    t = IM_REGISTER_TEST(e, "explorer", "image_view_bad_file_shows_error");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        RefActiveView(ctx, fx);
+        ctx->ItemDoubleClick("**/###gamma.png");
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        const ui::FileViewUi& v = fx.ui.fileView(fx.state.fileViews[0].id);
+        IM_CHECK(!v.error.empty());
+        IM_CHECK(v.texture == nullptr);
+        ctx->KeyPress(ImGuiMod_Ctrl | ImGuiKey_W);
+        ctx->Yield(3);
+        IM_CHECK(fx.state.fileViews.empty());
+    };
+
+    // With the preference off, double-click leaves images to the shell, but
+    // the context menu still offers the built-in viewer.
+    t = IM_REGISTER_TEST(e, "explorer", "image_view_preference_off_uses_menu");
+    t->TestFunc = [](ImGuiTestContext* ctx) {
+        Fixture& fx = *g_fx;
+        GoToScratch(ctx, fx);
+        fx.state.settings.openImagesInApp = false;
+        WritePng(app::JoinPath(fx.root, "pic1.png"));
+        app::Refresh(fx.state.active());
+        ctx->Yield(3);
+        RefActiveView(ctx, fx);
+        ctx->ItemClick("**/###pic1.png", ImGuiMouseButton_Right);
+        ctx->Yield(2);
+        ctx->SetRef("//$FOCUSED");
+        ctx->ItemClick("View in Davesplorer");
+        ctx->Yield(3);
+        IM_CHECK_EQ(fx.state.fileViews.size(), (size_t)1);
+        IM_CHECK_STR_EQ(app::PathName(fx.state.fileViews[0].path).c_str(), "pic1.png");
+        fx.state.settings.openImagesInApp = true;
+    };
 }
 
 } // namespace
@@ -957,6 +1066,7 @@ int main(int argc, char** argv)
         std::printf("%-8s %s/%s\n", status, test->Category, test->Name);
         }
 
+    ui::textures::ReleaseAll();
     ImGuiTestEngine_Stop(engine);
     ImGui::DestroyContext();
     ImGuiTestEngine_DestroyContext(engine);

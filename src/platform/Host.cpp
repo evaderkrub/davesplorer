@@ -6,6 +6,7 @@
 #include "app/AppState.h"
 #include "ui/Fonts.h"
 #include "ui/MainWindow.h"
+#include "ui/Textures.h"
 #include "ui/Theme.h"
 #include "ui/UiState.h"
 
@@ -241,7 +242,8 @@ int RunApplication(int argc, char** argv)
         SDL_GetWindowSize(window, &state.settings.windowWidth, &state.settings.windowHeight);
     app::SaveAppState(state);
 
-    ImGui_ImplSDLRenderer3_Shutdown();
+    ImGui_ImplSDLRenderer3_Shutdown();   // destroys the GPU side of every texture, ours included
+    ui::textures::ReleaseAll();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
     SDL_DestroyRenderer(renderer);

@@ -24,6 +24,7 @@ struct Settings
     bool  showShortcutBar = true;
     bool  showStatusBar = true;
     bool  showDetailsPane = false;
+    bool  openImagesInApp = true;  // double-click on an image: the built-in viewer, not the shell
     std::string startPath;         // where the first tab opens; "" is This PC
     bool  rememberLastPath = true;
 

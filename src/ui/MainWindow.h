@@ -32,6 +32,16 @@ int OpenView(app::AppState& state, UiState& ui, const std::string& path, ImGuiID
 // Asks for a new view split off the given tab's dock node next frame.
 void RequestSplitView(UiState& ui, int tabId, ImGuiDir dir);
 
+// A file view window is titled after its file, with the same stable-id
+// scheme as folder views.
+std::string FileViewWindowName(const app::AppState& state, const app::FileView& view);
+inline ImGuiID FileViewWindowId(int id) { return ImHashStr(("###file" + std::to_string(id)).c_str()); }
+
+// Opens (or focuses) the built-in viewer on a file, docked beside the
+// active folder view. Returns the index into state.fileViews.
+int  OpenFileView(app::AppState& state, UiState& ui, const std::string& path);
+void CloseFileView(app::AppState& state, UiState& ui, int id);
+
 // Requests used by more than one pane.
 void RequestDialog(UiState& ui, Dialog which, const std::string& title = {});
 void ShowError(UiState& ui, const std::string& message);
@@ -43,6 +53,8 @@ void DrawShortcutBar(app::AppState& state, UiState& ui);   // inside the host wi
 void DrawNavPane(app::AppState& state, UiState& ui);
 // One location's window. Returns true when the user closed it.
 bool DrawView(app::AppState& state, UiState& ui, int tabIndex);
+// One file's window. Returns true when the user closed it.
+bool DrawFileView(app::AppState& state, UiState& ui, int index);
 void DrawDialogs(app::AppState& state, UiState& ui);
 
 } // namespace ui

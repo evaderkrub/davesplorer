@@ -39,6 +39,7 @@ void ApplySettingLine(Settings& s, const std::string& key, const std::string& va
     else if (key == "show_shortcut_bar")  s.showShortcutBar = ParseBool(value);
     else if (key == "show_status_bar")    s.showStatusBar = ParseBool(value);
     else if (key == "show_details_pane")  s.showDetailsPane = ParseBool(value);
+    else if (key == "open_images_in_app") s.openImagesInApp = ParseBool(value);
     else if (key == "start_path")         s.startPath = value;
     else if (key == "remember_last_path") s.rememberLastPath = ParseBool(value);
     else if (key == "window_width")       s.windowWidth = std::max(400, std::atoi(value.c_str()));
@@ -66,6 +67,7 @@ std::string SerializeSettings(const Settings& s)
     out << "show_shortcut_bar=" << (s.showShortcutBar ? 1 : 0) << '\n';
     out << "show_status_bar=" << (s.showStatusBar ? 1 : 0) << '\n';
     out << "show_details_pane=" << (s.showDetailsPane ? 1 : 0) << '\n';
+    out << "open_images_in_app=" << (s.openImagesInApp ? 1 : 0) << '\n';
     out << "start_path=" << s.startPath << '\n';
     out << "remember_last_path=" << (s.rememberLastPath ? 1 : 0) << '\n';
     out << "window_width=" << s.windowWidth << '\n';

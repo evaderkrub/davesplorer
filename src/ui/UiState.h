@@ -52,10 +52,41 @@ struct ViewUi
     std::vector<uint8_t> lassoBase;               // selection snapshot when the lasso began
 };
 
+// Per-file-view interface state: the decoded image as a texture, and how
+// it is being looked at. Keyed by the file view's id.
+struct FileViewUi
+{
+    bool    shown = false;
+    bool    wantFocus = false;
+    ImGuiID dockId = 0;
+    ImGuiID dockHint = 0;
+
+    std::string    loadedPath;       // what `texture` holds; differs from the view's path until loaded
+    ImTextureData* texture = nullptr;
+    int            width = 0;        // texture size (may be downsampled from the file)
+    int            height = 0;
+    int            sourceWidth = 0;  // the file's own size
+    int            sourceHeight = 0;
+    bool           hasAlpha = false; // draw a checkerboard behind it
+    uint64_t       fileBytes = 0;
+    std::string    error;            // decode failure, shown in place of the image
+
+    bool   fit = true;               // follow the window size (shrink only); false once zoomed by hand
+    float  zoom = 1.0f;              // texture pixels to screen pixels
+    ImVec2 pan{};                    // image centre offset from the canvas centre, screen pixels
+
+    std::vector<std::string> siblings;   // the folder's images in order, for Previous/Next
+    int                      siblingIndex = -1;
+};
+
 struct UiState
 {
     std::unordered_map<int, ViewUi> views;
     ViewUi& view(int tabId) { return views[tabId]; }
+
+    std::unordered_map<int, FileViewUi> fileViews;
+    FileViewUi& fileView(int id) { return fileViews[id]; }
+    int activeFileView = -1;       // the focused file view's id, -1 when a folder view has focus
 
     // View > Split: open a new view beside the given one.
     struct SplitRequest

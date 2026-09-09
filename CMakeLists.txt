@@ -102,6 +102,12 @@ if(MSVC)
         NOMINMAX WIN32_LEAN_AND_MEAN UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
 endif()
 
+# stb_image, for the built-in image viewer. Vendored: one public-domain
+# header, pinned by being in the tree. Its own target so the strict flags
+# stay off it.
+add_library(stb_image STATIC third_party/stb/stb_image_impl.c)
+target_include_directories(stb_image SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/third_party/stb)
+
 # ---------------------------------------------------------------------------
 # Application libraries.
 #   dsp_app : state and logic, plus the OS layer it calls. No ImGui.
@@ -125,6 +131,7 @@ add_library(dsp_app STATIC
     src/app/Settings.cpp
     src/app/FileOps.cpp
     src/app/Shortcuts.cpp
+    src/app/Image.cpp
     ${DSP_PLATFORM_DIR}/Strings.cpp
     ${DSP_PLATFORM_DIR}/Paths.cpp
     ${DSP_PLATFORM_DIR}/FileSystem.cpp
@@ -132,7 +139,7 @@ add_library(dsp_app STATIC
     ${DSP_PLATFORM_DIR}/DragDrop.cpp
     ${DSP_PLATFORM_DIR}/Shell.cpp)
 target_include_directories(dsp_app PUBLIC src)
-target_link_libraries(dsp_app PUBLIC dsp_strict)
+target_link_libraries(dsp_app PUBLIC dsp_strict stb_image)
 if(WIN32)
     target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi)
 else()
@@ -149,6 +156,8 @@ add_library(dsp_ui STATIC
     src/ui/MainWindow.cpp
     src/ui/NavPane.cpp
     src/ui/FilesPane.cpp
+    src/ui/ImageView.cpp
+    src/ui/Textures.cpp
     src/ui/Dialogs.cpp)
 target_link_libraries(dsp_ui PUBLIC dsp_app imgui)
 
