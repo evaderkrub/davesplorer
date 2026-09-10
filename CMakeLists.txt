@@ -15,6 +15,14 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# The macOS platform layer is Objective-C++: Foundation and AppKit are what
+# the desktop's file APIs are, the way GIO is on Linux.
+if(APPLE)
+    enable_language(OBJCXX)
+    set(CMAKE_OBJCXX_STANDARD 20)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
@@ -115,8 +123,13 @@ target_include_directories(stb_image SYSTEM PUBLIC ${CMAKE_SOURCE_DIR}/third_par
 # ---------------------------------------------------------------------------
 if(WIN32)
     set(DSP_PLATFORM_DIR src/platform)
+    set(DSP_PLATFORM_EXT cpp)
+elseif(APPLE)
+    set(DSP_PLATFORM_DIR src/platform/macos)
+    set(DSP_PLATFORM_EXT mm)
 else()
     set(DSP_PLATFORM_DIR src/platform/linux)
+    set(DSP_PLATFORM_EXT cpp)
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-2.0)
 endif()
@@ -132,16 +145,20 @@ add_library(dsp_app STATIC
     src/app/FileOps.cpp
     src/app/Shortcuts.cpp
     src/app/Image.cpp
-    ${DSP_PLATFORM_DIR}/Strings.cpp
-    ${DSP_PLATFORM_DIR}/Paths.cpp
-    ${DSP_PLATFORM_DIR}/FileSystem.cpp
-    ${DSP_PLATFORM_DIR}/Clipboard.cpp
-    ${DSP_PLATFORM_DIR}/DragDrop.cpp
-    ${DSP_PLATFORM_DIR}/Shell.cpp)
+    ${DSP_PLATFORM_DIR}/Strings.${DSP_PLATFORM_EXT}
+    ${DSP_PLATFORM_DIR}/Paths.${DSP_PLATFORM_EXT}
+    ${DSP_PLATFORM_DIR}/FileSystem.${DSP_PLATFORM_EXT}
+    ${DSP_PLATFORM_DIR}/Clipboard.${DSP_PLATFORM_EXT}
+    ${DSP_PLATFORM_DIR}/DragDrop.${DSP_PLATFORM_EXT}
+    ${DSP_PLATFORM_DIR}/Shell.${DSP_PLATFORM_EXT})
 target_include_directories(dsp_app PUBLIC src)
 target_link_libraries(dsp_app PUBLIC dsp_strict stb_image)
 if(WIN32)
     target_link_libraries(dsp_app PUBLIC shell32 ole32 shlwapi)
+elseif(APPLE)
+    target_link_libraries(dsp_app PUBLIC SDL3::SDL3-static
+        "-framework Foundation" "-framework AppKit" "-framework UniformTypeIdentifiers")
+    target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)
 else()
     target_link_libraries(dsp_app PUBLIC PkgConfig::GIO SDL3::SDL3-static)
     target_compile_options(dsp_strict INTERFACE -Wall -Wextra -Wpedantic -Werror)

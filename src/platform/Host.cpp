@@ -15,7 +15,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
-#include <glib.h>
 #include <filesystem>
 #endif
 #include "app/PathUtil.h"
@@ -72,7 +71,7 @@ int RunApplication(int argc, char** argv)
 #ifdef _WIN32
     app::InitAppState(state, ExecutableDir());
 #else
-    const std::string configDir = app::JoinPath(g_get_user_config_dir(), "davesplorer");
+    const std::string configDir = app::JoinPath(UserConfigDir(), "davesplorer");
     std::error_code configError;
     std::filesystem::create_directories(configDir, configError);
     if (configError)

@@ -211,12 +211,17 @@ void TestPathUtil()
 }
 
 #ifndef _WIN32
-void TestLinuxFileSystem()
+void TestUnixFileSystem()
 {
-    TempDir tmp("linux");
+    TempDir tmp("unix");
     std::string error;
     const std::string source = tmp.dir("Source");
-    const std::string other = tmp.dir("source");
+    // A sibling that differs only in case is a second folder on a
+    // case-sensitive filesystem and the very same folder on one that folds
+    // case, which APFS does by default; dropping onto it is a no-op there.
+    const bool caseSensitive = !platform::PathExists(app::JoinPath(tmp.path, "source"));
+    const std::string cased = tmp.dir("source");
+    const std::string other = tmp.dir("other");
     const std::string nested = app::JoinPath(source, "nested");
     CHECK(platform::CreateFolder(nested, error));
     const std::string file = tmp.file("café #100% \\ file.txt", "original");
@@ -231,7 +236,8 @@ void TestLinuxFileSystem()
     std::getline(std::ifstream(collision), contents);
     CHECK_EQ(contents, "keep me");
     CHECK(platform::PathExists(file));
-    CHECK(app::CanDropOn({source}, other)); // Case-sensitive siblings.
+    CHECK_EQ(app::CanDropOn({source}, cased), caseSensitive);
+    CHECK(app::CanDropOn({source}, other));
     CHECK(!app::CanDropOn({source}, nested));
     const std::string alias = app::JoinPath(tmp.path, "alias");
     std::filesystem::create_directory_symlink(nested, alias);
@@ -260,10 +266,18 @@ void TestLinuxFileSystem()
     if (!files.empty()) CHECK_EQ(files[0], file);
     CHECK(cut);
     const auto sequence = platform::ClipboardSequence();
+#ifdef __APPLE__
+    // macOS keeps the file list on a pasteboard, which SDL's clipboard does
+    // not share; clearing it is what supersedes the list there.
+    CHECK(platform::ClearClipboard());
+    CHECK(platform::ClipboardSequence() != sequence);
+    CHECK(!platform::ClipboardHasFiles());
+#else
     CHECK(SDL_SetClipboardText("replacement text"));
     CHECK(platform::ClipboardSequence() != sequence);
     CHECK(!platform::ClipboardHasFiles());
     CHECK(platform::ClearClipboard());
+#endif
 
     app::AppState state;
     const std::string config = tmp.dir("config");
@@ -865,7 +879,7 @@ int main()
     TestPathUtil();
     TestFormat();
 #ifndef _WIN32
-    TestLinuxFileSystem();
+    TestUnixFileSystem();
 #endif
     TestSettings();
     TestNavigationAndListing();
